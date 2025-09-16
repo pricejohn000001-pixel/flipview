@@ -1,0 +1,54 @@
+/* navbar.module.css */
+
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #1a2b49;
+  padding: 1rem 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.logoContainer {
+  display: flex;
+  align-items: center;
+}
+
+.logo {
+  height: 48px;
+  margin-right: 0.75rem;
+}
+
+.siteName {
+  color: #f3ce0f;
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+.navLinks {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.navLink {
+  display: flex;
+  align-items: center;
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 1rem;
+  transition: color 0.3s ease;
+}
+
+.navLink:hover {
+  color: #f3ce0f;
+}
+
+.icon {
+  margin-right: 0.5rem;
+}
+
+/* Highlighted when route matches */
+.activeNavLink {
+  color: #f3ce0f;
+}

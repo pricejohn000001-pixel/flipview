@@ -1,0 +1,133 @@
+/* comment bubble */
+.commentBubble {
+  position: fixed; /* portal overrides top/left inline; class keeps styles */
+  background: #ffffff;
+  color: #333;
+  padding: 12px 16px;
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+  max-width: 320px;
+  z-index: 99999;
+  animation: fadeIn 0.18s ease-out;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+/* little triangular arrow pointing to the rect */
+.commentArrow {
+  position: absolute;
+  top: 12px;
+  left: -8px;
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-right: 8px solid #ffffff;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.06));
+}
+
+/* header */
+.commentHeader {
+  font-weight: 600;
+  font-size: 13px;
+  color: #555;
+}
+
+/* text shown when not editing */
+.commentText {
+  cursor: pointer;
+  padding: 6px 4px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+  white-space: pre-wrap;
+  line-height: 1.4;
+  min-height: 34px;
+}
+
+.commentText:hover {
+  background-color: #fafafa;
+}
+
+/* placeholder text inside the comment area */
+.placeholder {
+  color: #aaa;
+  font-style: italic;
+}
+
+/* textarea when editing */
+.commentInput {
+  width: 100%;
+  min-height: 80px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  resize: vertical;
+  font-family: inherit;
+  outline: none;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
+}
+
+/* focus ring for accessibility */
+.commentInput:focus {
+  box-shadow: 0 0 0 3px rgba(0,120,215,0.08);
+  border-color: rgba(0,120,215,0.4);
+}
+
+.addCommentButton {
+  align-self: center;
+  margin-top: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: #0078d7;
+  color: white;
+  font-size: 20px;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+  transition: background 0.2s ease;
+}
+
+.addCommentButton:hover {
+  background: #005a9e;
+}
+
+.commentRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.deleteButton {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  color: #888;
+  transition: color 0.2s ease;
+}
+
+.deleteButton:hover {
+  color: #d11a2a;
+}
+
+
+/* subtle fade-in animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
