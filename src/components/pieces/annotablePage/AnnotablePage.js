@@ -3,7 +3,7 @@ import ReactDOM from "react-dom";
 import { Stage, Layer, Rect } from "react-konva";
 import styles from "./annotablePage.module.css";
 
-function AnnotatablePage({ pageImage, pageNumber, isDrawing }) {
+function AnnotatablePage({ pageImage, pageNumber, isDrawing,setIsCommentOpen }) {
   const [annotations, setAnnotations] = useState([]);
   const [newAnnotation, setNewAnnotation] = useState(null);
   const [activeIndex, setActiveIndex] = useState(null);
@@ -150,6 +150,11 @@ function AnnotatablePage({ pageImage, pageNumber, isDrawing }) {
     setActiveIndex(i);
     setIsEditing(false);
   };
+
+  useEffect(() => {
+  setIsCommentOpen?.(portalPos.visible);
+  }, [portalPos.visible, setIsCommentOpen]);
+
 
   // Portal content
   const portalContent =
