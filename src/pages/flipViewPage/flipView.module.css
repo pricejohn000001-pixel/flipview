@@ -1,40 +1,91 @@
 .bookContainer {
-  position: relative;
-  width: 100vw;
-  height: 100vh;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
-  overflow: hidden;
+  padding: 15px;
+  width: 100vw;
+  background: #f9f9f9;
+  min-height: 100vh;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
 }
 
-/* Bottom toolbar styled like PDF viewer */
 .toolbar {
-  position: absolute;
-  bottom: 20px; /* at bottom center */
-  left: 50%;
-  transform: translateX(-50%);
-  background: #fff;
-  border-radius: 6px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
   display: flex;
-  align-items: center;
-  padding: 6px 12px;
   gap: 10px;
-  z-index: 1000;
+  margin-bottom: 12px;
+  background: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  user-select: none;
+  align-items: center;
 }
 
 .iconButton {
+  background: transparent;
   border: none;
-  background: none;
-  font-size: 18px;
+  font-size: 22px;
+  padding: 8px 12px;
+  border-radius: 6px;
   cursor: pointer;
-  padding: 6px;
-  color: #444;
-  border-radius: 4px;
-  transition: background 0.2s;
+  color: #555;
+  transition: background-color 0.25s ease, color 0.25s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .iconButton:hover {
-  background: #f0f0f0;
+  background-color: #eee;
+}
+
+.iconButton:focus {
+  outline: none;
+  box-shadow: 0 0 3px 2px #a8d0ff;
+}
+
+.active {
+  background-color: #d0eaff;
+  color: #0078d7;
+}
+
+/* Color palette card */
+.colorPaletteCard {
+  position: fixed;
+  top: 80px;
+  right: -300px;
+  width: 260px;
+  background: white;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+  border-radius: 12px;
+  padding: 16px 20px;
+  user-select: none;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  transition: right 0.4s ease, opacity 0.3s ease;
+}
+
+.colorPaletteCardVisible {
+  right: 40px;
+  opacity: 1;
+}
+
+.colorPaletteCard h4 {
+  margin: 0 0 10px 0;
+  font-weight: 600;
+  color: #222;
+  font-size: 18px;
+  user-select: none;
+}
+
+.colorPreview {
+  margin-top: 12px;
+  width: 60px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1.5px solid #ddd;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
 }

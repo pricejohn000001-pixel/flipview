@@ -1,12 +1,22 @@
-import React, { useRef, useState, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import ReactDOM from "react-dom";
-import { Stage, Layer, Rect } from "react-konva";
+import { Stage, Layer, Rect, Line } from "react-konva";
 import styles from "./annotablePage.module.css";
 
-function AnnotatablePage({ pageImage, pageNumber, isDrawing,setIsCommentOpen }) {
+function AnnotatablePage({
+  pageImage,
+  pageNumber,
+  isDrawing,
+  isFreehand,
+  highlightColor,
+  setIsCommentOpen,
+}) {
   const [annotations, setAnnotations] = useState([]);
-  const [newAnnotation, setNewAnnotation] = useState(null);
+  const [pendingHighlights, setPendingHighlights] = useState([]); // Highlights without comments
+  const [newRect, setNewRect] = useState(null);
+  const [newFreehand, setNewFreehand] = useState(null);
   const [activeIndex, setActiveIndex] = useState(null);
+  const [activePendingIndex, setActivePendingIndex] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
 
   const stageRef = useRef(null);
@@ -14,18 +24,22 @@ function AnnotatablePage({ pageImage, pageNumber, isDrawing,setIsCommentOpen }) 
 
   const [portalPos, setPortalPos] = useState({ top: 0, left: 0, visible: false });
 
-  // load saved annotations
   useEffect(() => {
     const saved = localStorage.getItem(`annotations-page-${pageNumber}`);
     if (saved) setAnnotations(JSON.parse(saved));
+    
+    const savedPending = localStorage.getItem(`pending-annotations-page-${pageNumber}`);
+    if (savedPending) setPendingHighlights(JSON.parse(savedPending));
   }, [pageNumber]);
 
-  // persist annotations
   useEffect(() => {
     localStorage.setItem(`annotations-page-${pageNumber}`, JSON.stringify(annotations));
   }, [annotations, pageNumber]);
 
-  // compute viewport position for annotation
+  useEffect(() => {
+    localStorage.setItem(`pending-annotations-page-${pageNumber}`, JSON.stringify(pendingHighlights));
+  }, [pendingHighlights, pageNumber]);
+
   const updatePortalPosition = useCallback(() => {
     const stageNode = stageRef.current;
     if (!stageNode) return setPortalPos({ top: 0, left: 0, visible: false });
@@ -34,16 +48,40 @@ function AnnotatablePage({ pageImage, pageNumber, isDrawing,setIsCommentOpen }) 
     const scaleX = typeof stageNode.scaleX === "function" ? stageNode.scaleX() : 1;
     const scaleY = typeof stageNode.scaleY === "function" ? stageNode.scaleY() : 1;
 
-    if (activeIndex == null || !annotations[activeIndex]) {
+    let targetAnnotation = null;
+
+    if (activeIndex != null && annotations[activeIndex]) {
+      const ann = annotations[activeIndex];
+      // Handle grouped annotations - use the first highlight for positioning
+      if (ann.type === "group" && ann.highlights && ann.highlights.length > 0) {
+        targetAnnotation = ann.highlights[0];
+      } else {
+        targetAnnotation = ann;
+      }
+    } else if (activePendingIndex != null && pendingHighlights[activePendingIndex]) {
+      targetAnnotation = pendingHighlights[activePendingIndex];
+    }
+
+    if (!targetAnnotation) {
       return setPortalPos({ top: 0, left: 0, visible: false });
     }
 
-    const ann = annotations[activeIndex];
-    const top = containerRect.top + ann.y * scaleY;
-    const left = containerRect.left + (ann.x + ann.width) * scaleX + 12;
+    if (targetAnnotation.type === "freehand") {
+      const points = targetAnnotation.points;
+      if (points.length < 2) return setPortalPos({ top: 0, left: 0, visible: false });
 
-    setPortalPos({ top, left, visible: true });
-  }, [activeIndex, annotations]);
+      const lastX = points[points.length - 2];
+      const lastY = points[points.length - 1];
+      const top = containerRect.top + lastY * scaleY;
+      const left = containerRect.left + lastX * scaleX + 12;
+
+      setPortalPos({ top, left, visible: true });
+    } else {
+      const top = containerRect.top + targetAnnotation.y * scaleY;
+      const left = containerRect.left + (targetAnnotation.x + targetAnnotation.width) * scaleX + 12;
+      setPortalPos({ top, left, visible: true });
+    }
+  }, [activeIndex, activePendingIndex, annotations, pendingHighlights]);
 
   useEffect(() => {
     updatePortalPosition();
@@ -55,12 +93,13 @@ function AnnotatablePage({ pageImage, pageNumber, isDrawing,setIsCommentOpen }) 
     };
   }, [updatePortalPosition]);
 
-  // close bubble on outside clicks
   useEffect(() => {
     const handleDocDown = (e) => {
       if (commentRef.current && commentRef.current.contains(e.target)) return;
       setActiveIndex(null);
+      setActivePendingIndex(null);
       setIsEditing(false);
+      setIsCommentOpen(false);
     };
 
     document.addEventListener("mousedown", handleDocDown);
@@ -69,214 +108,324 @@ function AnnotatablePage({ pageImage, pageNumber, isDrawing,setIsCommentOpen }) 
       document.removeEventListener("mousedown", handleDocDown);
       document.removeEventListener("touchstart", handleDocDown);
     };
-  }, []);
+  }, [setIsCommentOpen]);
 
-  // Drawing handlers
   const handleMouseDown = (e) => {
+    if (!isDrawing) return;
+
+    const stage = e.target.getStage();
+    if (e.target !== stage) return;
+
+    const pos = stage.getPointerPosition();
+
+    if (isFreehand) {
+      setNewFreehand({
+        points: [pos.x, pos.y],
+        type: "freehand",
+        color: highlightColor,
+      });
+      setActiveIndex(null);
+      setActivePendingIndex(null);
+      setIsEditing(false);
+      setIsCommentOpen(false);
+    } else {
+      setNewRect({
+        x: pos.x,
+        y: pos.y,
+        width: 0,
+        height: 0,
+        type: "rect",
+      });
+      setActiveIndex(null);
+      setActivePendingIndex(null);
+      setIsEditing(false);
+      setIsCommentOpen(false);
+    }
+  };
+
+  const handleMouseMove = (e) => {
     if (!isDrawing) return;
     const stage = e.target.getStage();
     if (e.target !== stage) return;
 
-    const { x, y } = stage.getPointerPosition();
-    setNewAnnotation({
-      x,
-      y,
-      width: 0,
-      height: 0,
-      comments: [{ text: "", createdAt: Date.now() }],
-    });
-    setActiveIndex(null);
-    setIsEditing(false);
-  };
+    const pos = stage.getPointerPosition();
 
-  const handleMouseMove = (e) => {
-    if (!isDrawing || !newAnnotation) return;
-    const stage = e.target.getStage();
-    const { x, y } = stage.getPointerPosition();
-    setNewAnnotation({ ...newAnnotation, width: x - newAnnotation.x, height: y - newAnnotation.y });
+    if (isFreehand && newFreehand) {
+      setNewFreehand((prev) => ({
+        ...prev,
+        points: [...prev.points, pos.x, pos.y],
+      }));
+    } else if (!isFreehand && newRect) {
+      setNewRect({
+        ...newRect,
+        width: pos.x - newRect.x,
+        height: pos.y - newRect.y,
+      });
+    }
   };
 
   const handleMouseUp = () => {
-    if (!newAnnotation) return;
-    let { x, y, width, height, comments } = newAnnotation;
-    if (width < 0) { x += width; width = Math.abs(width); }
-    if (height < 0) { y += height; height = Math.abs(height); }
+    if (!isDrawing) return;
 
-    const ann = { x, y, width, height, comments };
-    setAnnotations((prev) => [...prev, ann]);
-
-    setTimeout(() => {
-      setActiveIndex((prev) => annotations.length);
+    if (isFreehand && newFreehand) {
+      // Add to pending highlights
+      setPendingHighlights((prev) => [...prev, newFreehand]);
+      setActivePendingIndex(pendingHighlights.length);
       setIsEditing(true);
-    }, 0);
+      setNewFreehand(null);
+    } else if (!isFreehand && newRect) {
+      if (Math.abs(newRect.width) > 5 && Math.abs(newRect.height) > 5) {
+        let x = newRect.x;
+        let y = newRect.y;
+        let width = newRect.width;
+        let height = newRect.height;
 
-    setNewAnnotation(null);
+        if (width < 0) {
+          x = x + width;
+          width = Math.abs(width);
+        }
+        if (height < 0) {
+          y = y + height;
+          height = Math.abs(height);
+        }
+
+        const normalizedRect = { ...newRect, x, y, width, height };
+        // Add to pending highlights
+        setPendingHighlights((prev) => [...prev, normalizedRect]);
+        setActivePendingIndex(pendingHighlights.length);
+        setIsEditing(true);
+      }
+      setNewRect(null);
+    }
   };
 
-  const updateComment = (index, commentIndex, text) => {
-    setAnnotations((prev) => {
-      const copy = [...prev];
-      const ann = { ...copy[index] };
-      ann.comments = [...ann.comments];
-      ann.comments[commentIndex] = { ...ann.comments[commentIndex], text };
-      copy[index] = ann;
-      return copy;
-    });
-  };
-
-  const addNewComment = (index) => {
-    setAnnotations((prev) => {
-      const copy = [...prev];
-      const ann = { ...copy[index] };
-      ann.comments = [...ann.comments, { text: "", createdAt: Date.now() }];
-      copy[index] = ann;
-      return copy;
-    });
+  const handleAnnotationClick = (index, e, isPending = false) => {
+    e.cancelBubble = true;
+    if (isPending) {
+      setActivePendingIndex(index);
+      setActiveIndex(null);
+    } else {
+      setActiveIndex(index);
+      setActivePendingIndex(null);
+    }
     setIsEditing(true);
+    setIsCommentOpen(true);
   };
 
-  const deleteComment = (index, commentIndex) => {
-    setAnnotations((prev) => {
-      const copy = [...prev];
-      const ann = { ...copy[index] };
-      ann.comments = ann.comments.filter((_, i) => i !== commentIndex);
-      copy[index] = ann;
-      return copy;
-    });
+  const handleCommentChange = (e) => {
+    const commentText = e.target.value;
+    
+    // If we're editing a pending highlight and user adds text, group all pending highlights
+    if (activePendingIndex != null && commentText.trim() !== "") {
+      // Create a new annotation group with all pending highlights
+      const newAnnotation = {
+        type: "group",
+        highlights: [...pendingHighlights],
+        comments: [{ text: commentText, createdAt: Date.now() }],
+      };
+      
+      setAnnotations((prev) => [...prev, newAnnotation]);
+      setPendingHighlights([]); // Clear pending highlights
+      setActivePendingIndex(null);
+      setActiveIndex(annotations.length); // Set active to the new group
+      return;
+    }
+    
+    // Handle regular comment editing for existing annotations
+    if (activeIndex != null) {
+      const updatedAnnotations = [...annotations];
+      updatedAnnotations[activeIndex].comments[0].text = commentText;
+      setAnnotations(updatedAnnotations);
+    }
   };
 
-  const handleRectClick = (i, e) => {
-    if (e && e.evt && e.evt.stopPropagation) e.evt.stopPropagation();
-    setActiveIndex(i);
+  const handleDelete = () => {
+    if (activeIndex != null) {
+      const updated = annotations.filter((_, i) => i !== activeIndex);
+      setAnnotations(updated);
+      setActiveIndex(null);
+    } else if (activePendingIndex != null) {
+      const updated = pendingHighlights.filter((_, i) => i !== activePendingIndex);
+      setPendingHighlights(updated);
+      setActivePendingIndex(null);
+    }
     setIsEditing(false);
+    setIsCommentOpen(false);
   };
 
-  useEffect(() => {
-  setIsCommentOpen?.(portalPos.visible);
-  }, [portalPos.visible, setIsCommentOpen]);
+  const getCurrentComment = () => {
+    if (activeIndex != null && annotations[activeIndex]) {
+      return annotations[activeIndex].comments[0]?.text || "";
+    }
+    return ""; // Pending highlights don't have comments yet
+  };
 
-
-  // Portal content
-  const portalContent =
-    portalPos.visible && activeIndex !== null && annotations[activeIndex] ? (
-      <div
-        style={{
-          position: "fixed",
-          top: portalPos.top,
-          left: portalPos.left,
-          zIndex: 99999,
-          pointerEvents: "auto",
-          minWidth: 220,
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-        onTouchStart={(e) => e.stopPropagation()}
-      >
-        <div
-          className={styles.commentBubble}
-          ref={commentRef}
-          style={{ position: "fixed", top: portalPos.top, left: portalPos.left }}
-        >
-          <div className={styles.commentArrow} />
-          <div className={styles.commentHeader}>Comments</div>
-
-          {annotations[activeIndex].comments.map((c, i) => (
-            <div key={i} className={styles.commentRow}>
-              {isEditing ? (
-                <textarea
-                  value={c.text}
-                  onChange={(e) => updateComment(activeIndex, i, e.target.value)}
-                  className={styles.commentInput}
-                  autoFocus={i === annotations[activeIndex].comments.length - 1}
-                />
-              ) : (
-                <div
-                  className={styles.commentText}
-                  onClick={() => setIsEditing(true)}
-                  title={`Created at ${new Date(c.createdAt).toLocaleString()}`}
-                >
-                  {c.text || <span className={styles.placeholder}>Click to add comment</span>}
-                </div>
-              )}
-
-              <button
-                className={styles.deleteButton}
-                onClick={() => deleteComment(activeIndex, i)}
-                title="Delete comment"
-              >
-                🗑
-              </button>
-            </div>
-          ))}
-
-          <button
-            className={styles.addCommentButton}
-            onClick={() => addNewComment(activeIndex)}
-            title="Add another comment"
-          >
-            +
-          </button>
-        </div>
-      </div>
-    ) : null;
+  const renderHighlight = (highlight, key, onClick) => {
+    if (highlight.type === "freehand") {
+      return (
+        <Line
+          key={key}
+          points={highlight.points}
+          stroke={highlight.color || highlightColor}
+          strokeWidth={20}
+          tension={0.5}
+          lineCap="round"
+          lineJoin="round"
+          opacity={0.3}
+          onClick={onClick}
+          onTap={onClick}
+          perfectDrawEnabled={false}
+        />
+      );
+    }
+    // Rectangle highlight
+    return (
+      <Rect
+        key={key}
+        x={highlight.x}
+        y={highlight.y}
+        width={highlight.width}
+        height={highlight.height}
+        fill="rgba(255,255,0,0.3)"
+        stroke="orange"
+        strokeWidth={1}
+        onClick={onClick}
+        onTap={onClick}
+        perfectDrawEnabled={false}
+      />
+    );
+  };
 
   return (
-    <div style={{ position: "relative", width: 500, height: 700 }}>
+    <>
       <Stage
-        width={500}
+        width={2000}
         height={700}
-        onMouseDown={handleMouseDown}
-        onTouchStart={(e) => handleMouseDown(e)}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
         ref={stageRef}
-        style={{
-          backgroundImage: `url(${pageImage})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-          touchAction: isDrawing ? "none" : "auto",
-        }}
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onTouchMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onTouchEnd={handleMouseUp}
+        style={{ backgroundImage: `url(${pageImage})`, backgroundSize: "cover", backgroundPosition: "center" }}
+        className={styles.stage}
       >
         <Layer>
-          {annotations.map((ann, i) => (
+          {/* Render completed annotation groups */}
+          {annotations.map((ann, i) => {
+            if (ann.type === "group") {
+              // Render all highlights in the group
+              return ann.highlights.map((highlight, j) => 
+                renderHighlight(
+                  highlight, 
+                  `group-${i}-${j}`, 
+                  (e) => handleAnnotationClick(i, e, false)
+                )
+              );
+            }
+            // Handle single annotations (backward compatibility)
+            return renderHighlight(
+              ann, 
+              `single-${i}`, 
+              (e) => handleAnnotationClick(i, e, false)
+            );
+          })}
+
+          {/* Render pending highlights (with dashed border to show they're pending) */}
+          {pendingHighlights.map((highlight, i) => {
+            if (highlight.type === "freehand") {
+              return (
+                <Line
+                  key={`pending-${i}`}
+                  points={highlight.points}
+                  stroke={highlight.color || highlightColor}
+                  strokeWidth={20}
+                  tension={0.5}
+                  lineCap="round"
+                  lineJoin="round"
+                  opacity={0.3}
+                  dash={[8, 4]}
+                  onClick={(e) => handleAnnotationClick(i, e, true)}
+                  onTap={(e) => handleAnnotationClick(i, e, true)}
+                  perfectDrawEnabled={false}
+                />
+              );
+            }
+            return (
+              <Rect
+                key={`pending-${i}`}
+                x={highlight.x}
+                y={highlight.y}
+                width={highlight.width}
+                height={highlight.height}
+                fill="rgba(255,255,0,0.2)"
+                stroke="orange"
+                strokeWidth={2}
+                dash={[8, 4]}
+                onClick={(e) => handleAnnotationClick(i, e, true)}
+                onTap={(e) => handleAnnotationClick(i, e, true)}
+                perfectDrawEnabled={false}
+              />
+            );
+          })}
+
+          {/* Drawing preview */}
+          {newRect && !isFreehand && (
             <Rect
-              key={i}
-              x={ann.x}
-              y={ann.y}
-              width={ann.width}
-              height={ann.height}
+              x={newRect.x}
+              y={newRect.y}
+              width={newRect.width}
+              height={newRect.height}
               fill="rgba(255,255,0,0.3)"
               stroke="orange"
               strokeWidth={1}
-              onClick={(e) => handleRectClick(i, e)}
-              onTap={(e) => handleRectClick(i, e)}
-              onMouseEnter={() => {
-                const container = stageRef.current?.container();
-                if (container) container.style.cursor = "pointer";
-              }}
-              onMouseLeave={() => {
-                const container = stageRef.current?.container();
-                if (container) container.style.cursor = "default";
-              }}
-              perfectDrawEnabled={false}
-            />
-          ))}
-
-          {newAnnotation && (
-            <Rect
-              x={newAnnotation.x}
-              y={newAnnotation.y}
-              width={newAnnotation.width}
-              height={newAnnotation.height}
-              fill="rgba(0,0,255,0.15)"
-              stroke="blue"
               dash={[4, 4]}
+            />
+          )}
+          {newFreehand && isFreehand && (
+            <Line
+              points={newFreehand.points}
+              stroke={newFreehand.color || highlightColor}
+              strokeWidth={20}
+              tension={0.5}
+              lineCap="round"
+              lineJoin="round"
+              dash={[4, 4]}
+              opacity={0.3}
             />
           )}
         </Layer>
       </Stage>
 
-      {ReactDOM.createPortal(portalContent, document.body)}
-    </div>
+      {/* Comment bubble */}
+      {portalPos.visible && (activeIndex != null || activePendingIndex != null) && (
+        ReactDOM.createPortal(
+          <div
+            ref={commentRef}
+            className={styles.commentBubble}
+            style={{ position: "absolute", top: portalPos.top, left: portalPos.left, zIndex: 1000 }}
+            onClick={e => e.stopPropagation()}
+          >
+            <textarea
+              rows={3}
+              placeholder={activePendingIndex != null ? "Add comment to group all highlights..." : "Add comment..."}
+              value={getCurrentComment()}
+              onChange={handleCommentChange}
+              autoFocus={isEditing}
+              className={styles.commentTextarea}
+            />
+            <button onClick={handleDelete} className={styles.deleteButton}>Delete</button>
+            {pendingHighlights.length > 0 && (
+              <div className={styles.pendingInfo}>
+                {pendingHighlights.length} highlight(s) pending grouping
+              </div>
+            )}
+          </div>,
+          document.body
+        )
+      )}
+    </>
   );
 }
 

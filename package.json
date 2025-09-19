@@ -42,6 +42,7 @@
     "lucide-react": "^0.544.0",
     "pdf-annotator-react": "^0.4.10",
     "react": "^18.3.1",
+    "react-colorful": "^5.6.1",
     "react-datepicker": "^4.8.0",
     "react-dom": "^18.3.1",
     "react-icons": "^4.3.1",
@@ -49,6 +50,8 @@
     "react-pageflip": "^2.0.3",
     "react-pdf": "^10.1.0",
     "react-router-dom": "^5.3.0",
-    "react-select": "^4.3.1"
+    "react-select": "^4.3.1",
+    "react-zoom-pan-pinch": "3.4.4",
+    "turn.js": "https://github.com/rizalibnu/turn.js.git"
   }
 }
