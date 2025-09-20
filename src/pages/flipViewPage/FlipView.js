@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from "react";
 import $ from "jquery";
 import "turn.js";
 import AnnotatablePage from "../../components/pieces/annotablePage/AnnotablePage";
-import styles from "./flipView.module.css";
 import {
   FaSave,
   FaTimes,
@@ -10,8 +9,13 @@ import {
   FaSquare,
   FaSearchPlus,
   FaSearchMinus,
-  FaCompress
+  FaCompress,
+  FaBookmark,
+  FaRegBookmark,
+  FaChevronLeft,
+  FaChevronRight
 } from "react-icons/fa";
+import styles from './flipview.module.css';
 import { HexColorPicker } from "react-colorful";
 
 function FlipBook({ pages }) {
@@ -28,6 +32,9 @@ function FlipBook({ pages }) {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [bookmarks, setBookmarks] = useState(new Set());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const isInteractionActive = isDrawing || isCommentOpen || isDragging;
 
@@ -41,10 +48,24 @@ function FlipBook({ pages }) {
     gradients: true,
     when: {
       turned: function (e, page) {
+        setCurrentPage(page);
         console.log("Turned to page:", page);
       }
     }
   };
+
+  // Load bookmarks from localStorage
+  useEffect(() => {
+    const savedBookmarks = localStorage.getItem('flipbook-bookmarks');
+    if (savedBookmarks) {
+      setBookmarks(new Set(JSON.parse(savedBookmarks)));
+    }
+  }, []);
+
+  // Save bookmarks to localStorage
+  useEffect(() => {
+    localStorage.setItem('flipbook-bookmarks', JSON.stringify([...bookmarks]));
+  }, [bookmarks]);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -100,6 +121,22 @@ function FlipBook({ pages }) {
     setIsZoomed(false);
     setPanOffset({ x: 0, y: 0 });
     setIsDragging(false);
+  };
+
+  const toggleBookmark = (pageNum) => {
+    const newBookmarks = new Set(bookmarks);
+    if (newBookmarks.has(pageNum)) {
+      newBookmarks.delete(pageNum);
+    } else {
+      newBookmarks.add(pageNum);
+    }
+    setBookmarks(newBookmarks);
+  };
+
+  const goToPage = (pageNum) => {
+    if (flipbookRef.current) {
+      flipbookRef.current.turn("page", pageNum);
+    }
   };
 
   const handleMouseDown = (e) => {
@@ -165,13 +202,13 @@ function FlipBook({ pages }) {
     position: isZoomed ? "fixed" : "relative",
     top: isZoomed ? "0" : "auto",
     left: isZoomed ? "0" : "auto",
-    width: isZoomed ? "100vw" : "auto",
-    height: isZoomed ? "100vh" : "auto",
+    width: isZoomed ? "100vw" : "1000px",
+    height: isZoomed ? "100vh" : "700px",
     zIndex: isZoomed ? 1000 : "auto",
     backgroundColor: isZoomed ? "rgba(0, 0, 0, 0.9)" : "transparent",
     display: isZoomed ? "flex" : "block",
-    justifyContent: isZoomed ? "center" : "flex-start",
-    alignItems: isZoomed ? "center" : "flex-start",
+    justifyContent: isZoomed ? "center" : "center",
+    alignItems: isZoomed ? "center" : "center",
     overflow: isZoomed ? "auto" : "visible",
     padding: isZoomed ? "20px" : "0"
   };
@@ -193,132 +230,484 @@ function FlipBook({ pages }) {
   };
 
   return (
-    <div className={styles.bookContainer}>
-      {/* Toolbar */}
-      <div
-        className={styles.toolbar}
-        style={{
-          position: isZoomed ? "fixed" : "relative",
-          top: isZoomed ? "20px" : "auto",
-          left: isZoomed ? "20px" : "auto",
-          zIndex: isZoomed ? 1001 : "auto",
-          backgroundColor: isZoomed ? "rgba(255, 255, 255, 0.95)" : "transparent",
-          borderRadius: isZoomed ? "8px" : "0",
-          padding: isZoomed ? "10px" : "0",
-          boxShadow: isZoomed ? "0 4px 12px rgba(0, 0, 0, 0.3)" : "none"
-        }}
-      >
-        <button
-          className={`${styles.iconButton} ${!isFreehand && isDrawing ? styles.active : ""}`}
-          onClick={() => {
-            setIsFreehand(false);
-            setIsDrawing(true);
-          }}
-          title="Draw Rectangle"
-        >
-          <FaSquare />
-        </button>
+    <div style={{
+      display: 'flex',
+      width: '100vw',
+      height: '100vh',
+      background: '#2d2d2d',
+      fontFamily: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif'
+    }}>
+      {/* Sidebar */}
+      <div style={{
+        width: sidebarCollapsed ? '60px' : '280px',
+        backgroundColor: '#3a3a3a',
+        borderRight: '1px solid #555',
+        display: 'flex',
+        flexDirection: 'column',
+        transition: 'width 0.3s ease',
+        position: 'relative',
+        zIndex: isZoomed ? 1001 : 'auto'
+      }}>
+        {/* Sidebar Header */}
+        <div style={{
+          padding: '16px',
+          borderBottom: '1px solid #555',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}>
+          {!sidebarCollapsed && (
+            <h3 style={{ color: '#e0e0e0', margin: 0, fontSize: '16px' }}>Pages</h3>
+          )}
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#e0e0e0',
+              cursor: 'pointer',
+              padding: '4px',
+              borderRadius: '3px'
+            }}
+          >
+            {sidebarCollapsed ? <FaChevronRight /> : <FaChevronLeft />}
+          </button>
+        </div>
 
-        <button
-          className={`${styles.iconButton} ${isFreehand && isDrawing ? styles.active : ""}`}
-          onClick={() => {
-            setIsFreehand(true);
-            setIsDrawing(true);
-          }}
-          title="Draw Freehand"
-        >
-          <FaDrawPolygon />
-        </button>
-
-        <button className={styles.iconButton} onClick={() => setIsDrawing(false)} title="Stop Drawing">
-          <FaTimes />
-        </button>
-
-        <button className={styles.iconButton} onClick={handleSave} title="Save Highlights">
-          <FaSave />
-        </button>
-
-        <div style={{ borderLeft: "1px solid #ccc", margin: "0 10px", height: "30px" }}></div>
-
-        <button className={styles.iconButton} onClick={handleZoomIn} title="Zoom In" disabled={zoomLevel >= 3}>
-          <FaSearchPlus />
-        </button>
-
-        <button className={styles.iconButton} onClick={handleZoomOut} title="Zoom Out" disabled={zoomLevel <= 1}>
-          <FaSearchMinus />
-        </button>
-
-        <button className={styles.iconButton} onClick={handleZoomReset} title="Reset Zoom" disabled={!isZoomed}>
-          <FaCompress />
-        </button>
-
-        {isZoomed && (
-          <span style={{ marginLeft: "10px", fontSize: "14px", color: "#666", fontWeight: "bold" }}>
-            {Math.round(zoomLevel * 100)}%
-          </span>
-        )}
-      </div>
-
-      {/* Color Palette */}
-      <div
-        className={`${styles.colorPaletteCard} ${
-          isFreehand && isDrawing ? styles.colorPaletteCardVisible : ""
-        }`}
-      >
-        <h4>Pick Highlight Color</h4>
-        <HexColorPicker color={highlightColor} onChange={setHighlightColor} />
-        <div className={styles.colorPreview} style={{ backgroundColor: highlightColor }} />
-      </div>
-
-      {/* Zoom Container */}
-      <div ref={zoomContainerRef} style={zoomContainerStyle}>
-        <div
-          ref={containerRef}
-          className="magazine"
-          style={flipbookStyle}
-          onMouseDown={handleMouseDown}
-        >
+        {/* Page Thumbnails */}
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: sidebarCollapsed ? '8px 4px' : '16px'
+        }}>
           {pages.map((img, idx) => {
             const pageNumber = idx + 1;
+            const isBookmarked = bookmarks.has(pageNumber);
+            const isCurrentPage = currentPage === pageNumber;
+
             return (
               <div
                 key={idx}
-                className="page"
-                style={{ width: options.width / 2, height: options.height }}
+                style={{
+                  marginBottom: '12px',
+                  position: 'relative',
+                  cursor: 'pointer'
+                }}
               >
-                <AnnotatablePage
-                  pageImage={img}
-                  pageNumber={pageNumber}
-                  isDrawing={isDrawing}
-                  isFreehand={isFreehand}
-                  highlightColor={highlightColor}
-                  setIsDrawing={setIsDrawing}
-                  setIsCommentOpen={setIsCommentOpen}
-                />
+                <div
+                  onClick={() => goToPage(pageNumber)}
+                  style={{
+                    width: '100%',
+                    height: sidebarCollapsed ? '60px' : '120px',
+                    backgroundImage: `url(${img})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    borderRadius: '6px',
+                    border: isCurrentPage ? '2px solid #4a90e2' : '2px solid transparent',
+                    transition: 'all 0.2s ease',
+                    position: 'relative',
+                    overflow: 'hidden'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isCurrentPage) {
+                      e.target.style.border = '2px solid #666';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isCurrentPage) {
+                      e.target.style.border = '2px solid transparent';
+                    }
+                  }}
+                >
+                  {/* Page number overlay */}
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '4px',
+                    left: '4px',
+                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                    color: '#fff',
+                    padding: '2px 6px',
+                    borderRadius: '3px',
+                    fontSize: '11px',
+                    fontWeight: '500'
+                  }}>
+                    {pageNumber}
+                  </div>
+                </div>
+
+                {/* Bookmark button */}
+                {!sidebarCollapsed && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleBookmark(pageNumber);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      top: '6px',
+                      right: '6px',
+                      background: 'rgba(0, 0, 0, 0.6)',
+                      border: 'none',
+                      color: isBookmarked ? '#ffd700' : '#ccc',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      borderRadius: '3px',
+                      fontSize: '14px',
+                      transition: 'color 0.2s ease'
+                    }}
+                    title={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
+                  >
+                    {isBookmarked ? <FaBookmark /> : <FaRegBookmark />}
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
+
+        {/* Bookmarked Pages Section */}
+        {!sidebarCollapsed && [...bookmarks].length > 0 && (
+          <div style={{
+            borderTop: '1px solid #555',
+            padding: '16px'
+          }}>
+            <h4 style={{ color: '#e0e0e0', margin: '0 0 12px 0', fontSize: '14px' }}>
+              Bookmarks ({[...bookmarks].length})
+            </h4>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {[...bookmarks].sort((a, b) => a - b).map(pageNum => (
+                <button
+                  key={pageNum}
+                  onClick={() => goToPage(pageNum)}
+                  style={{
+                    background: currentPage === pageNum ? '#4a90e2' : '#555',
+                    border: 'none',
+                    color: '#fff',
+                    padding: '4px 8px',
+                    borderRadius: '3px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    transition: 'background 0.2s ease'
+                  }}
+                >
+                  {pageNum}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      {isZoomed && (
+      {/* Main Content Area */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        {/* Toolbar */}
         <div
           style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100vw",
-            height: "100vh",
-            zIndex: 999,
-            cursor: "pointer"
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0',
+            margin: '0',
+            background: '#404040',
+            padding: '8px 16px',
+            borderRadius: '0',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.3)',
+            userSelect: 'none',
+            width: '100%',
+            minHeight: '48px',
+            borderBottom: '1px solid #555',
+            position: isZoomed ? 'fixed' : 'relative',
+            top: isZoomed ? '20px' : 'auto',
+            left: isZoomed ? '20px' : 'auto',
+            zIndex: isZoomed ? 1001 : 'auto',
+            backgroundColor: isZoomed ? 'rgba(64, 64, 64, 0.95)' : '#404040',
+            borderRadius: isZoomed ? '6px' : '0',
+            border: isZoomed ? '1px solid #555' : 'none',
+            backdropFilter: isZoomed ? 'blur(10px)' : 'none'
           }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !isDragging) {
-              handleZoomReset();
-            }
+        >
+          <button
+            style={{
+              background: (!isFreehand && isDrawing) ? '#4a90e2' : 'transparent',
+              border: 'none',
+              fontSize: '16px',
+              padding: '8px 12px',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              color: '#e0e0e0',
+              transition: 'background-color 0.2s ease, color 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '36px',
+              height: '32px',
+              margin: '0 2px'
+            }}
+            onClick={() => {
+              setIsFreehand(false);
+              setIsDrawing(true);
+            }}
+            title="Draw Rectangle"
+          >
+            <FaSquare />
+          </button>
+
+          <button
+            style={{
+              background: (isFreehand && isDrawing) ? '#4a90e2' : 'transparent',
+              border: 'none',
+              fontSize: '16px',
+              padding: '8px 12px',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              color: '#e0e0e0',
+              transition: 'background-color 0.2s ease, color 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '36px',
+              height: '32px',
+              margin: '0 2px'
+            }}
+            onClick={() => {
+              setIsFreehand(true);
+              setIsDrawing(true);
+            }}
+            title="Draw Freehand"
+          >
+            <FaDrawPolygon />
+          </button>
+
+          <button
+            style={{
+              background: 'transparent',
+              border: 'none',
+              fontSize: '16px',
+              padding: '8px 12px',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              color: '#e0e0e0',
+              transition: 'background-color 0.2s ease, color 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '36px',
+              height: '32px',
+              margin: '0 2px'
+            }}
+            onClick={() => setIsDrawing(false)}
+            title="Stop Drawing"
+          >
+            <FaTimes />
+          </button>
+
+          <button
+            style={{
+              background: 'transparent',
+              border: 'none',
+              fontSize: '16px',
+              padding: '8px 12px',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              color: '#e0e0e0',
+              transition: 'background-color 0.2s ease, color 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '36px',
+              height: '32px',
+              margin: '0 2px'
+            }}
+            onClick={handleSave}
+            title="Save Highlights"
+          >
+            <FaSave />
+          </button>
+
+          <div style={{ borderLeft: '1px solid #666', margin: '0 8px', height: '24px' }}></div>
+
+          <button
+            style={{
+              background: 'transparent',
+              border: 'none',
+              fontSize: '16px',
+              padding: '8px 12px',
+              borderRadius: '3px',
+              cursor: zoomLevel >= 3 ? 'not-allowed' : 'pointer',
+              color: zoomLevel >= 3 ? '#888' : '#e0e0e0',
+              opacity: zoomLevel >= 3 ? 0.5 : 1,
+              transition: 'background-color 0.2s ease, color 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '36px',
+              height: '32px',
+              margin: '0 2px'
+            }}
+            onClick={handleZoomIn}
+            title="Zoom In"
+            disabled={zoomLevel >= 3}
+          >
+            <FaSearchPlus />
+          </button>
+
+          <button
+            style={{
+              background: 'transparent',
+              border: 'none',
+              fontSize: '16px',
+              padding: '8px 12px',
+              borderRadius: '3px',
+              cursor: zoomLevel <= 1 ? 'not-allowed' : 'pointer',
+              color: zoomLevel <= 1 ? '#888' : '#e0e0e0',
+              opacity: zoomLevel <= 1 ? 0.5 : 1,
+              transition: 'background-color 0.2s ease, color 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '36px',
+              height: '32px',
+              margin: '0 2px'
+            }}
+            onClick={handleZoomOut}
+            title="Zoom Out"
+            disabled={zoomLevel <= 1}
+          >
+            <FaSearchMinus />
+          </button>
+
+          <button
+            style={{
+              background: 'transparent',
+              border: 'none',
+              fontSize: '16px',
+              padding: '8px 12px',
+              borderRadius: '3px',
+              cursor: !isZoomed ? 'not-allowed' : 'pointer',
+              color: !isZoomed ? '#888' : '#e0e0e0',
+              opacity: !isZoomed ? 0.5 : 1,
+              transition: 'background-color 0.2s ease, color 0.2s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '36px',
+              height: '32px',
+              margin: '0 2px'
+            }}
+            onClick={handleZoomReset}
+            title="Reset Zoom"
+            disabled={!isZoomed}
+          >
+            <FaCompress />
+          </button>
+
+          {isZoomed && (
+            <span style={{
+              color: '#e0e0e0',
+              fontSize: '13px',
+              fontWeight: 'normal',
+              marginLeft: '8px',
+              padding: '4px 8px',
+              background: 'rgba(255, 255, 255, 0.1)',
+              borderRadius: '3px',
+              minWidth: '45px',
+              textAlign: 'center'
+            }}>
+              {Math.round(zoomLevel * 100)}%
+            </span>
+          )}
+        </div>
+
+        {/* Color Palette */}
+        <div
+          style={{
+            position: 'fixed',
+            top: '60px',
+            right: (isFreehand && isDrawing) ? '20px' : '-300px',
+            width: '260px',
+            background: '#3a3a3a',
+            boxShadow: '0 6px 18px rgba(0, 0, 0, 0.3)',
+            borderRadius: '8px',
+            padding: '16px 20px',
+            userSelect: 'none',
+            zIndex: 1100,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            opacity: (isFreehand && isDrawing) ? 1 : 0,
+            transition: 'right 0.4s ease, opacity 0.3s ease',
+            border: '1px solid #555'
           }}
-        />
-      )}
+        >
+          <h4 style={{
+            margin: '0 0 10px 0',
+            fontWeight: '500',
+            color: '#e0e0e0',
+            fontSize: '16px',
+            userSelect: 'none'
+          }}>
+            Pick Highlight Color
+          </h4>
+          <HexColorPicker color={highlightColor} onChange={setHighlightColor} />
+          <div style={{
+            marginTop: '12px',
+            width: '60px',
+            height: '30px',
+            borderRadius: '4px',
+            border: '1px solid #666',
+            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+            backgroundColor: highlightColor
+          }} />
+        </div>
+
+        {/* Zoom Container */}
+        <div ref={zoomContainerRef} style={zoomContainerStyle}>
+          <div
+            ref={containerRef}
+            style={flipbookStyle}
+            onMouseDown={handleMouseDown}
+          >
+            {pages.map((img, idx) => {
+              const pageNumber = idx + 1;
+              return (
+                <div
+                  key={idx}
+                  style={{ width: options.width / 2, height: options.height }}
+                >
+                  <AnnotatablePage
+                    pageImage={img}
+                    pageNumber={pageNumber}
+                    isDrawing={isDrawing}
+                    isFreehand={isFreehand}
+                    highlightColor={highlightColor}
+                    setIsDrawing={setIsDrawing}
+                    setIsCommentOpen={setIsCommentOpen}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {isZoomed && (
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              width: "100vw",
+              height: "100vh",
+              zIndex: 999,
+              cursor: "pointer"
+            }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !isDragging) {
+                handleZoomReset();
+              }
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }
