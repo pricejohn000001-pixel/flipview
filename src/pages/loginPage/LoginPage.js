@@ -6,7 +6,6 @@ import Footer from '../../components/pieces/footer/Footer';
 import page1 from '../../assets/page1.jpg'
 import page2 from '../../assets/page2.jpg'
 import page3 from '../../assets/page3.jpg'
-import FlipBook from '../flipViewPage/FlipView';
 
 const LoginPage = () => {
   const [username, setUsername] = useState('');
@@ -27,8 +26,8 @@ const LoginPage = () => {
 
   return (
     <div style={{width: '100vw'}}>
-      {/* <Header />  
-        <div className={styles['login-container']}>
+      <Header />  
+      <div className={styles['login-container']}>
           <div className={styles['background-blur']} style={{ backgroundImage: `url(${courtImage})` }}></div>
           <div className={styles['login-card']}>
             <div className={styles['logo-section']}>
@@ -66,10 +65,7 @@ const LoginPage = () => {
             </form>
           </div>
       </div>
-      <Footer /> */}
-        <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'center' }}>
-          <FlipBook pages={pages} />
-        </div>
+      <Footer />
     </div>
   );
 };

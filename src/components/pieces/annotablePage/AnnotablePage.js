@@ -10,6 +10,7 @@ function AnnotatablePage({
   isFreehand,
   highlightColor,
   setIsCommentOpen,
+  brushSize
 }) {
   const [annotations, setAnnotations] = useState([]);
   const [pendingHighlights, setPendingHighlights] = useState([]); // Highlights without comments
@@ -123,6 +124,7 @@ function AnnotatablePage({
         points: [pos.x, pos.y],
         type: "freehand",
         color: highlightColor,
+        strokeWidth: brushSize,
       });
       setActiveIndex(null);
       setActivePendingIndex(null);
@@ -267,7 +269,7 @@ function AnnotatablePage({
           key={key}
           points={highlight.points}
           stroke={highlight.color || highlightColor}
-          strokeWidth={20}
+          strokeWidth={highlight.strokeWidth || brushSize}
           tension={0.5}
           lineCap="round"
           lineJoin="round"
@@ -340,12 +342,11 @@ function AnnotatablePage({
                   key={`pending-${i}`}
                   points={highlight.points}
                   stroke={highlight.color || highlightColor}
-                  strokeWidth={20}
+                  strokeWidth={highlight.strokeWidth || brushSize}
                   tension={0.5}
                   lineCap="round"
                   lineJoin="round"
                   opacity={0.3}
-                  dash={[8, 4]}
                   onClick={(e) => handleAnnotationClick(i, e, true)}
                   onTap={(e) => handleAnnotationClick(i, e, true)}
                   perfectDrawEnabled={false}
@@ -387,11 +388,10 @@ function AnnotatablePage({
             <Line
               points={newFreehand.points}
               stroke={newFreehand.color || highlightColor}
-              strokeWidth={20}
+              strokeWidth={newFreehand.strokeWidth || brushSize}
               tension={0.5}
               lineCap="round"
               lineJoin="round"
-              dash={[4, 4]}
               opacity={0.3}
             />
           )}
