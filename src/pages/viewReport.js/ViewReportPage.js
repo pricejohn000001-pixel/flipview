@@ -3,69 +3,88 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import styles from './ViewReportPage.module.css';
 import Navbar from '../../components/pieces/navbar/Navbar';
-
-// Dummy data (could be fetched from backend)
-const dummyData = [
-  { id: 1, hcCase: 'Appeal-2021-123', lcrNo: 'Civil-2021-456', date: new Date('2021-06-15') },
-  { id: 2, hcCase: 'Revision-2020-789', lcrNo: 'Criminal-2020-321', date: new Date('2020-11-20') },
-  { id: 3, hcCase: 'Appeal-2022-555', lcrNo: 'Civil-2022-654', date: new Date('2022-01-05') },
-  { id: 4, hcCase: 'Appeal-2023-100', lcrNo: 'Civil-2023-222', date: new Date('2023-03-17') },
-  { id: 5, hcCase: 'Revision-2024-200', lcrNo: 'Criminal-2024-333', date: new Date('2024-04-12') },
-  { id: 6, hcCase: 'Appeal-2025-999', lcrNo: 'Civil-2025-777', date: new Date('2025-09-15') },
-  // add more dummy rows as needed
-];
-
-const PAGE_SIZE = 3; // Static for now
+import axios from 'axios';
 
 const ViewReportPage = () => {
-  const [filterLcrNo, setFilterLcrNo] = useState('');
-  const [filterHcCase, setFilterHcCase] = useState('');
+  const [lcrTypes, setLcrTypes] = useState([]);
+  const [hcTypes, setHcTypes] = useState([]);
+  const [filterLcrType, setFilterLcrType] = useState('');
+  const [filterHcType, setFilterHcType] = useState('');
   const [filterDate, setFilterDate] = useState(null);
 
-  const [filteredData, setFilteredData] = useState(dummyData);
-
-  // Pagination states
+  const [rawData, setRawData] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const totalPages = Math.ceil(filteredData.length / PAGE_SIZE);
+  const [perPage, setPerPage] = useState(5);
+  const [total, setTotal] = useState(0);
 
-  const lcrNoOptions = Array.from(new Set(dummyData.map(item => item.lcrNo))).sort();
-  const hcCaseOptions = Array.from(new Set(dummyData.map(item => item.hcCase))).sort();
+  const totalPages = Math.ceil(total / perPage);
 
+  const token = localStorage.getItem('token');
+
+  // Fetch case types for dropdowns
   useEffect(() => {
-    let filtered = dummyData;
+    const fetchCaseTypes = async () => {
+      try {
+        const [lcrRes, hcRes] = await Promise.all([
+          axios.get(`${process.env.BACKEND_BASE_URL}case-types?type=lcr`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          axios.get(`${process.env.BACKEND_BASE_URL}case-types?type=hcc`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
 
-    if (filterLcrNo) {
-      filtered = filtered.filter(item => item.lcrNo === filterLcrNo);
+        setLcrTypes(lcrRes?.data?.data || []);
+        setHcTypes(hcRes?.data?.data || []);
+      } catch (err) {
+        console.error('Error fetching case types:', err);
+      }
+    };
+
+    fetchCaseTypes();
+  }, [token]);
+
+  // Fetch order-data with filters
+  const fetchData = async (page = 1) => {
+    try {
+      const params = {
+        page,
+        lcrCaseType: filterLcrType || undefined,
+        hccCaseType: filterHcType || undefined,
+        orderDate: filterDate ? filterDate.toISOString().split('T')[0] : undefined,
+      };
+
+      const res = await axios.get(`${process.env.BACKEND_BASE_URL}admin/order-data`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params,
+      });
+
+      const pageData = res?.data?.data?.data;
+      const apiData = pageData?.data || [];
+
+      setRawData([...apiData].reverse()); // latest first
+      setPerPage(pageData?.per_page || 5);
+      setTotal(pageData?.total || apiData.length);
+      setCurrentPage(pageData?.current_page || 1);
+    } catch (err) {
+      console.error('Error fetching order-data:', err);
     }
+  };
 
-    if (filterHcCase) {
-      filtered = filtered.filter(item => item.hcCase === filterHcCase);
-    }
-
-    if (filterDate) {
-      filtered = filtered.filter(item =>
-        item.date.toDateString() === filterDate.toDateString()
-      );
-    }
-
-    setFilteredData(filtered);
-    setCurrentPage(1); // Reset to page 1 on filter change
-  }, [filterLcrNo, filterHcCase, filterDate]);
+  // Initial fetch & whenever filters change
+  useEffect(() => {
+    fetchData(1);
+  }, [filterLcrType, filterHcType, filterDate]);
 
   const clearFilters = () => {
-    setFilterLcrNo('');
-    setFilterHcCase('');
+    setFilterLcrType('');
+    setFilterHcType('');
     setFilterDate(null);
   };
 
-  const paginatedResults = filteredData.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
-  );
-
   const handlePageChange = (page) => {
     if (page < 1 || page > totalPages) return;
-    setCurrentPage(page);
+    fetchData(page);
   };
 
   return (
@@ -75,53 +94,54 @@ const ViewReportPage = () => {
         <div className={styles['search-card']}>
           <h2>Filter Reports / LCR</h2>
           <div className={styles['search-fields-row']}>
-          <div className={styles['form-group']}>
-            <label htmlFor="filterLcrNo">LCR Case No.</label>
-            <select
-              id="filterLcrNo"
-              value={filterLcrNo}
-              onChange={(e) => setFilterLcrNo(e.target.value)}
-            >
-              <option value="">All LCRs</option>
-              {lcrNoOptions.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
-          </div>
+            <div className={styles['form-group']}>
+              <label htmlFor="filterLcrType">LCR Case Type</label>
+              <select
+                id="filterLcrType"
+                value={filterLcrType}
+                onChange={(e) => setFilterLcrType(e.target.value)}
+              >
+                <option value="">All LCR Types</option>
+                {lcrTypes.map((opt) => (
+                  <option key={opt.id} value={opt.id}>{opt.case_name}</option>
+                ))}
+              </select>
+            </div>
 
-          <div className={styles['form-group']}>
-            <label htmlFor="filterHcCase">HC Case No.</label>
-            <select
-              id="filterHcCase"
-              value={filterHcCase}
-              onChange={(e) => setFilterHcCase(e.target.value)}
-            >
-              <option value="">All HC Cases</option>
-              {hcCaseOptions.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
-          </div>
+            <div className={styles['form-group']}>
+              <label htmlFor="filterHcType">HC Case Type</label>
+              <select
+                id="filterHcType"
+                value={filterHcType}
+                onChange={(e) => setFilterHcType(e.target.value)}
+              >
+                <option value="">All HC Types</option>
+                {hcTypes.map((opt) => (
+                  <option key={opt.id} value={opt.id}>{opt.case_name}</option>
+                ))}
+              </select>
+            </div>
 
-          <div className={styles['form-group']}>
-            <label>Date</label>
-            <DatePicker
-              selected={filterDate}
-              onChange={(date) => setFilterDate(date)}
-              placeholderText="Select date"
-            />
+            <div className={styles['form-group']}>
+              <label>Date</label>
+              <DatePicker
+                selected={filterDate}
+                onChange={(date) => setFilterDate(date)}
+                placeholderText="Select date"
+              />
+            </div>
+
+            <div className={styles['form-group']} style={{ alignSelf: 'flex-end' }}>
+              <button type="button" className={styles['clear-button']} onClick={clearFilters}>
+                Clear Filters
+              </button>
+            </div>
           </div>
-          <div className={styles['form-group']} style={{ alignSelf: 'flex-end' }}>
-            <button className={styles['clear-button']} onClick={clearFilters}>
-              Clear Filters
-            </button>
-          </div>
-        </div>
         </div>
 
         <div className={styles['results-card']}>
           <h3>Results</h3>
-          {paginatedResults.length === 0 ? (
+          {rawData.length === 0 ? (
             <p className={styles['no-results']}>No results found.</p>
           ) : (
             <>
@@ -131,16 +151,38 @@ const ViewReportPage = () => {
                     <th>Sl.No</th>
                     <th>LCR Case No.</th>
                     <th>HC Case No.</th>
-                    <th>Date</th>
+                    <th>Order Date</th>
+                    <th>Case Status</th>
+                    <th>PDF</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedResults.map(({ id, lcrNo, hcCase, date }, index) => (
-                    <tr key={id}>
-                      <td>{(currentPage - 1) * PAGE_SIZE + index + 1}</td>
-                      <td>{lcrNo}</td>
-                      <td>{hcCase}</td>
-                      <td>{date.toLocaleDateString()}</td>
+                  {rawData.map((item, index) => (
+                    <tr key={item.id}>
+                      <td>{(currentPage - 1) * perPage + index + 1}</td>
+                      <td>{item.lcrCaseNo}</td>
+                      <td>{item.highcourt_case_no}</td>
+                      <td>{new Date(item.order_date).toLocaleDateString()}</td>
+                      <td>
+                        <span
+                          className={`${styles['status-badge']} ${
+                            item.case_status === 'pending'
+                              ? styles['pending']
+                              : item.case_status === 'stayed'
+                              ? styles['stayed']
+                              : item.case_status === 'disposed'
+                              ? styles['disposed']
+                              : ''
+                          }`}
+                        >
+                          {item.case_status.charAt(0).toUpperCase() + item.case_status.slice(1)}
+                        </span>
+                      </td>
+                      <td>
+                        <a href={`${process.env.BACKEND_PDF_URL}${item.pdf_name}`} target="_blank" rel="noopener noreferrer">
+                          View PDF
+                        </a>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -154,7 +196,6 @@ const ViewReportPage = () => {
                 >
                   ⬅ Prev
                 </button>
-
                 {Array.from({ length: totalPages }, (_, i) => (
                   <button
                     key={i + 1}
@@ -164,7 +205,6 @@ const ViewReportPage = () => {
                     {i + 1}
                   </button>
                 ))}
-
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}

@@ -17,7 +17,7 @@
   border-radius: 1rem;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
   width: 100%;
-  max-width: 1000px;
+  max-width: 1100px;
   margin-bottom: 2rem;
   transition: box-shadow 0.3s ease-in-out;
 }
@@ -183,3 +183,25 @@ select:focus {
   background-color: #1976d2 !important;
   color: white !important;
 }
+
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #fff;
+  text-transform: capitalize;
+}
+
+.pending {
+  background-color: #f59e0b; /* yellow/orange */
+}
+
+.stayed {
+  background-color: #3b82f6; /* blue */
+}
+
+.disposed {
+  background-color: #10b981; /* green */
+}
+
