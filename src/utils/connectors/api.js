@@ -9,9 +9,6 @@ const api = axios.create({
     Authorization: `Bearer ${process.env.REACT_APP_API_TOKEN}`, // Optional auth
   },
   timeout: 10000, // 10 seconds timeout
-  httpsAgent: new https.Agent({
-    rejectUnauthorized: false, // ✅ Bypass SSL certificate check. Remove later
-  }),
 });
 
 // Request interceptor (optional)
