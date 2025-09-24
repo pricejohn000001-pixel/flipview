@@ -4,6 +4,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 import styles from './ViewReportPage.module.css';
 import Navbar from '../../components/pieces/navbar/Navbar';
 import axios from 'axios';
+import { Link } from 'react-router-dom';
 
 const ViewReportPage = () => {
   const [lcrTypes, setLcrTypes] = useState([]);
@@ -150,7 +151,9 @@ const ViewReportPage = () => {
                   <tr>
                     <th>Sl.No</th>
                     <th>LCR Case No.</th>
+                    <th>LCR Case Name</th>
                     <th>HC Case No.</th>
+                    <th>HC Case Name</th>
                     <th>Order Date</th>
                     <th>Case Status</th>
                     <th>PDF</th>
@@ -161,7 +164,9 @@ const ViewReportPage = () => {
                     <tr key={item.id}>
                       <td>{(currentPage - 1) * perPage + index + 1}</td>
                       <td>{item.lcrCaseNo}</td>
-                      <td>{item.highcourt_case_no}</td>
+                      <td>{item.lcrCaseName}</td>
+                      <td>{item.hccCaseNo}</td>
+                      <td>{item.hccCaseName}</td>
                       <td>{new Date(item.order_date).toLocaleDateString()}</td>
                       <td>
                         <span
@@ -179,9 +184,12 @@ const ViewReportPage = () => {
                         </span>
                       </td>
                       <td>
-                        <a href={`${process.env.BACKEND_PDF_URL}${item.pdf_name}`} target="_blank" rel="noopener noreferrer">
+                        <Link
+                          to={`/report-edit?pdfName=${process.env.BACKEND_PDF_URL}${item.pdfName}`}
+                          target="_blank"
+                        >
                           View PDF
-                        </a>
+                        </Link>
                       </td>
                     </tr>
                   ))}

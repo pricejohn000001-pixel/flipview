@@ -1811,7 +1811,7 @@
   resolved "https://registry.yarnpkg.com/@napi-rs/canvas-win32-x64-msvc/-/canvas-win32-x64-msvc-0.1.80.tgz#6bb95885d9377912d71f1372fc1916fb54d6ef0a"
   integrity sha512-Z8jPsM6df5V8B1HrCHB05+bDiCxjE9QA//3YrkKIdVDEwn5RKaqOxCJDRJkl48cJbylcrJbW4HxZbTte8juuPg==
 
-"@napi-rs/canvas@^0.1.65", "@napi-rs/canvas@^0.1.71":
+"@napi-rs/canvas@^0.1.65", "@napi-rs/canvas@^0.1.71", "@napi-rs/canvas@^0.1.77":
   version "0.1.80"
   resolved "https://registry.yarnpkg.com/@napi-rs/canvas/-/canvas-0.1.80.tgz#53615bea56fd94e07331ab13caa7a39efc4914ab"
   integrity sha512-DxuT1ClnIPts1kQx8FBmkk4BQDTfI5kIzywAaMjQSXfNnra5UFU9PwurXrl+Je3bJ6BGsp/zmshVVFbCmyI+ww==
@@ -5799,6 +5799,13 @@ pdfjs-dist@^4.0.189:
   integrity sha512-/Y3fcFrXEAsMjJXeL9J8+ZG9U01LbuWaYypvDW2ycW1jL269L3js3DVBjDJ0Up9Np1uqDXsDrRihHANhZOlwdQ==
   optionalDependencies:
     "@napi-rs/canvas" "^0.1.65"
+
+pdfjs-dist@^5.4.149:
+  version "5.4.149"
+  resolved "https://registry.yarnpkg.com/pdfjs-dist/-/pdfjs-dist-5.4.149.tgz#7ff5b8427f37cd43e16377adf509af8595938afc"
+  integrity sha512-Xe8/1FMJEQPUVSti25AlDpwpUm2QAVmNOpFP0SIahaPIOKBKICaefbzogLdwey3XGGoaP4Lb9wqiw2e9Jqp0LA==
+  optionalDependencies:
+    "@napi-rs/canvas" "^0.1.77"
 
 picocolors@^1.0.0, picocolors@^1.1.1:
   version "1.1.1"

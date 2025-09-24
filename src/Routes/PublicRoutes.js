@@ -11,7 +11,7 @@ const PublicRoutes = () => (
     <Route exact path="/" component={LoginPage} />
     <PrivateRoute exact path="/form" component={FormPage} allowedRoles={[1]} />
     <PrivateRoute exact path="/view-report" component={ViewReportPage} allowedRoles={[1]} />
-    <PrivateRoute exact path="/report-edit" component={FlipBook} allowedRoles={[2]} />
+    <PrivateRoute exact path="/report-edit" component={FlipBook} allowedRoles={[1]} />
     <Route render={() => <Redirect to="/" />} />
   </Switch>
 );

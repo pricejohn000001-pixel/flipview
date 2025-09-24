@@ -54,7 +54,7 @@ const LoginPage = () => {
   };
 
   return (
-    <div style={{ width: '100vw' }}>
+    <div>
       <Header />
       <div className={styles['login-container']}>
         <div

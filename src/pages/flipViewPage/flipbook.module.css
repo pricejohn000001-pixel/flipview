@@ -210,7 +210,6 @@
 .toolbar {
   position: fixed;
   top: 20px;
-  left: calc(50% + 115px); /* Center relative to main content when sidebar is open */
   transform: translateX(-50%);
   z-index: 1002;
   background: rgba(58, 58, 58, 0.95);
