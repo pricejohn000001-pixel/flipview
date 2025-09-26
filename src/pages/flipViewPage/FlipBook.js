@@ -40,6 +40,8 @@ function FlipBook() {
   const [currentPage, setCurrentPage] = useState(1);
   const [bookmarks, setBookmarks] = useState(new Set());
   const [brushSize, setBrushSize] = useState(4);
+  const [bookSize, setBookSize] = useState({ width: 1000, height: 700 });
+  const [pageAspectRatio, setPageAspectRatio] = useState(8.5/11); // Default A4-like ratio
 
   // PDF states
   const [pageImages, setPageImages] = useState([]); // data URLs for pages
@@ -49,8 +51,64 @@ function FlipBook() {
   const [totalPages, setTotalPages] = useState(0);
   const [pdfWorkerLoaded, setPdfWorkerLoaded] = useState(false);
 
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 1200);;
+
   const brushSizes = [2, 4, 8, 12, 20];
   const isInteractionActive = isDrawing || isCommentOpen || isDragging;
+
+useEffect(() => {
+  const el = containerRef.current;
+  if (!el) return;
+
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchMoving = false;
+
+  const handleTouchStart = (e) => {
+    if (isDrawing) return; // skip if drawing
+    const touch = e.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    touchMoving = true;
+  };
+
+  const handleTouchMove = (e) => {
+    if (!touchMoving) return;
+    e.preventDefault(); // prevent scroll while swiping
+  };
+
+  const handleTouchEnd = (e) => {
+    if (!touchMoving) return;
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - touchStartX;
+
+    const elWidth = el.offsetWidth;
+    const threshold = Math.min(60, elWidth * 0.15); // minimum swipe distance
+
+    if (deltaX > threshold) {
+      // Swipe right → previous page
+      flipbookRef.current?.turn('previous');
+    } else if (deltaX < -threshold) {
+      // Swipe left → next page
+      flipbookRef.current?.turn('next');
+    }
+
+    touchMoving = false;
+  };
+
+  el.addEventListener('touchstart', handleTouchStart, { passive: false });
+  el.addEventListener('touchmove', handleTouchMove, { passive: false });
+  el.addEventListener('touchend', handleTouchEnd);
+
+  return () => {
+    el.removeEventListener('touchstart', handleTouchStart);
+    el.removeEventListener('touchmove', handleTouchMove);
+    el.removeEventListener('touchend', handleTouchEnd);
+  };
+}, [isDrawing, pageImages]);
+
+
+
 
   // PDF.js worker loader
   useEffect(() => {
@@ -109,7 +167,10 @@ function FlipBook() {
       };
 
       await page.render(renderContext).promise;
-      return canvas.toDataURL('image/png');
+      return {
+        dataUrl: canvas.toDataURL('image/png'),
+        aspectRatio: viewport.width / viewport.height
+      };
     } catch (err) {
       console.error('Error rendering PDF page:', err);
       throw err;
@@ -138,6 +199,14 @@ function FlipBook() {
         const pdf = await loadingTask.promise;
         setTotalPages(pdf.numPages);
 
+        // Get first page to determine aspect ratio
+        if (pdf.numPages > 0) {
+          const firstPage = await pdf.getPage(1);
+          const viewport = firstPage.getViewport({ scale: 1 });
+          const aspectRatio = viewport.width / viewport.height;
+          setPageAspectRatio(aspectRatio);
+        }
+
         // Batch size to reduce memory pressure
         const batchSize = 5;
         const renderedPages = [];
@@ -152,8 +221,8 @@ function FlipBook() {
             try {
               const page = await pdf.getPage(pageNum);
               // render full page and thumbnail in parallel for this page
-              pagePromises.push(renderPDFPage(page, 1.5));
-              thumbnailPromises.push(renderPDFPage(page, 0.35));
+              pagePromises.push(renderPDFPage(page, 1.5).then(result => result.dataUrl));
+              thumbnailPromises.push(renderPDFPage(page, 0.35).then(result => result.dataUrl));
             } catch (pageErr) {
               console.error(`Error loading page ${pageNum}`, pageErr);
               // placeholder fallback images (small SVG)
@@ -185,14 +254,79 @@ function FlipBook() {
     loadPDF();
   }, [pdfUrl, pdfWorkerLoaded]);
 
-  // flipbook options
+  // Calculate book size based on page aspect ratio
+  // const updateBookSize = () => {
+  //   const margin = 100;
+  //   const maxWidth = 1000;
+  //   const maxHeight = 900;
+
+  //   const screenWidth = window.innerWidth - margin;
+  //   const screenHeight = window.innerHeight - margin;
+
+  //   // For double page display, we need to account for two pages side by side
+  //   // Each page will be half the book width
+  //   const singlePageAspectRatio = pageAspectRatio;
+  //   const doublePageAspectRatio = singlePageAspectRatio * 2; // Two pages side by side
+
+  //   // Calculate dimensions based on double page aspect ratio
+  //   let width = Math.min(screenWidth, maxWidth);
+  //   let height = Math.floor(width / doublePageAspectRatio);
+
+  //   // Ensure it doesn't exceed screen height
+  //   if (height > screenHeight) {
+  //     height = screenHeight;
+  //     width = Math.floor(height * doublePageAspectRatio);
+  //   }
+
+  //   setBookSize({ width, height });
+  // };
+
+  // Calculate book size based on page aspect ratio
+const updateBookSize = () => {
+  const margin = 100; // tighter margin for mobile
+  const maxWidth = isMobile ? window.innerWidth - margin : 1000;
+  const maxHeight = isMobile ? window.innerHeight - margin : 900;
+
+  const screenWidth = window.innerWidth - margin;
+  const screenHeight = window.innerHeight - margin;
+
+  if (isMobile) {
+    // 📱 Single page scaling
+    let width = Math.min(screenWidth, maxWidth);
+    let height = Math.floor(width / pageAspectRatio);
+
+    if (height > screenHeight) {
+      height = screenHeight;
+      width = Math.floor(height * pageAspectRatio);
+    }
+
+    setBookSize({ width, height });
+  } else {
+    // 💻 Double page scaling
+    const doublePageAspectRatio = pageAspectRatio * 2;
+
+    let width = Math.min(screenWidth, maxWidth);
+    let height = Math.floor(width / doublePageAspectRatio);
+
+    if (height > screenHeight) {
+      height = screenHeight;
+      width = Math.floor(height * doublePageAspectRatio);
+    }
+
+    setBookSize({ width, height });
+  }
+};
+
+
+  // flipbook options - updated for proper page sizing
   const options = {
-    width: 1000,
-    height: 700,
+    width: bookSize.width,
+    height: bookSize.height,
     autoCenter: true,
-    display: "double",
+    display: isMobile ? "single" : "double", 
     acceleration: true,
     elevation: 50,
+    cornerSize: 1000,
     gradients: true,
     when: {
       turned: function (e, page) {
@@ -201,6 +335,25 @@ function FlipBook() {
       }
     }
   };
+  
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [])
+
+  // Update book size when page aspect ratio changes
+  useEffect(() => {
+    if (pageAspectRatio) {
+      updateBookSize();
+    }
+  }, [pageAspectRatio]);
+
+  useEffect(() => {
+    updateBookSize(); // Initial run
+    window.addEventListener("resize", updateBookSize);
+    return () => window.removeEventListener("resize", updateBookSize);
+  }, [pageAspectRatio]);
 
   // bookmarks localStorage load
   useEffect(() => {
@@ -259,7 +412,7 @@ function FlipBook() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageImages]);
+  }, [pageImages, bookSize]);
 
   // disable flipbook when interacting or zoomed
   useEffect(() => {
@@ -361,6 +514,19 @@ function FlipBook() {
   };
 
   useEffect(() => {
+  const preventScroll = (e) => {
+      e.preventDefault();
+  };
+
+  document.addEventListener("touchmove", preventScroll, { passive: false });
+
+  return () => {
+    document.removeEventListener("touchmove", preventScroll);
+  };
+}, []);
+
+
+  useEffect(() => {
     if (isDragging) {
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
@@ -431,11 +597,11 @@ function FlipBook() {
       </div>
     );
   }
-
+console.log(isMobile)
   return (
     <div className={styles.container}>
       {/* Floating Toolbar */}
-      <div className={styles.toolbar} style={{ left: isZoomed?'50%' :'calc(50% + 115px)' }}>
+      <div className={styles.toolbar} style={{ left: isZoomed || isMobile?'50%' :'calc(50% + 100px)' }}>
         <div className={styles.toolbarGrid}>
           <div className={styles.toolbarSection}>
             <span className={styles.toolbarSectionTitle}>Draw</span>
@@ -498,32 +664,70 @@ function FlipBook() {
       </div>
 
       {/* Color Palette */}
-      {(isFreehand && isDrawing) && (
-        <div className={styles.colorPalette}>
+            {(isFreehand && isDrawing) && (
+        <div className={`${styles.colorPalette} ${isMobile ? styles.colorPaletteMobile : ''}`}>
           <h4 className={styles.colorPaletteTitle}>Highlight Color</h4>
-          <HexColorPicker className={styles.colorPicker} color={highlightColor} onChange={setHighlightColor} />
-          <div className={styles.colorPreview} style={{ backgroundColor: highlightColor }} />
-          <div className={styles.brushSizeSection}>
-            <h4 className={styles.brushSizeTitle}>Brush Size</h4>
-            <div className={styles.brushSizeContainer}>
-              {brushSizes.map(size => (
-                <button
-                  key={size}
-                  className={`${styles.brushSizeButton} ${brushSize === size ? styles.active : ""}`}
-                  onClick={() => setBrushSize(size)}
-                  title={`Brush size: ${size}px`}
-                >
-                  <FaCircle style={{ fontSize: size, color: "white" }} />
-                </button>
-              ))}
+          
+          {isMobile ? (
+            // Mobile: Compact design with preset colors and simplified controls
+            <div className={styles.mobileColorControls}>
+              <div className={styles.presetColors}>
+                {['#fffb00', '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7', '#fd79a8', '#fdcb6e'].map(color => (
+                  <button
+                    key={color}
+                    className={`${styles.presetColorButton} ${highlightColor === color ? styles.active : ''}`}
+                    style={{ backgroundColor: color }}
+                    onClick={() => setHighlightColor(color)}
+                    title={`Select ${color}`}
+                  />
+                ))}
+              </div>
+              <div className={styles.mobileColorPreview} style={{ backgroundColor: highlightColor }} />
+              
+              <div className={styles.mobileBrushSize}>
+                <span className={styles.brushSizeLabel}>Size:</span>
+                <div className={styles.brushSizeSlider}>
+                  {brushSizes.map(size => (
+                    <button
+                      key={size}
+                      className={`${styles.mobileBrushButton} ${brushSize === size ? styles.active : ""}`}
+                      onClick={() => setBrushSize(size)}
+                      title={`${size}px`}
+                    >
+                      <FaCircle style={{ fontSize: Math.max(8, size), color: "white" }} />
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            // Desktop: Full color picker
+            <>
+              <HexColorPicker className={styles.colorPicker} color={highlightColor} onChange={setHighlightColor} />
+              <div className={styles.colorPreview} style={{ backgroundColor: highlightColor }} />
+              <div className={styles.brushSizeSection}>
+                <h4 className={styles.brushSizeTitle}>Brush Size</h4>
+                <div className={styles.brushSizeContainer}>
+                  {brushSizes.map(size => (
+                    <button
+                      key={size}
+                      className={`${styles.brushSizeButton} ${brushSize === size ? styles.active : ""}`}
+                      onClick={() => setBrushSize(size)}
+                      title={`Brush size: ${size}px`}
+                    >
+                      <FaCircle style={{ fontSize: size, color: "white" }} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
       {/* Sidebar */}
       {
-        !isZoomed && 
+        (!isZoomed && !isMobile) && 
         <div className={`${styles.sidebar} ${isZoomed ? styles.zoomed : ''}`}>
           <div className={styles.sidebarHeader}>
             <h3 className={styles.sidebarTitle}>
@@ -580,7 +784,10 @@ function FlipBook() {
 
       {/* Main Content Area */}
       <div className={styles.mainContent}>
-        <div ref={zoomContainerRef} className={`${styles.zoomContainer} ${isZoomed ? styles.zoomed : ''}`}>
+        <div 
+          ref={zoomContainerRef} 
+          className={`${styles.zoomContainer} ${isZoomed ? styles.zoomed : ''}`}
+          style={{height: isZoomed?'100vh':bookSize.height, width: isZoomed?'100vw':bookSize.width}}>
           <div
             ref={containerRef}
             className={getFlipbookClasses()}
@@ -600,6 +807,8 @@ function FlipBook() {
                     brushSize={brushSize}
                     setIsDrawing={setIsDrawing}
                     setIsCommentOpen={setIsCommentOpen}
+                    stageWidth={bookSize.width}
+                    stageHeight={bookSize.height}
                   />
                 </div>
               );
@@ -607,8 +816,8 @@ function FlipBook() {
           </div>
         </div>
 
-        {!isZoomed && (
-          <div className={styles.pageNavigation}>
+        {(!isZoomed && !isDrawing) && (
+          <div className={styles.pageNavigation} style={{ left: isZoomed || isMobile?'50%' :'calc(50% + 100px)' }}>
             <button
               className={styles.toolbarButton}
               onClick={() => currentPage > 1 && goToPage(currentPage - 1)}

@@ -10,7 +10,9 @@ function AnnotatablePage({
   isFreehand,
   highlightColor,
   setIsCommentOpen,
-  brushSize
+  brushSize,
+  stageWidth = 500,
+  stageHeight = 700
 }) {
   const [annotations, setAnnotations] = useState([]);
   const [pendingHighlights, setPendingHighlights] = useState([]); // Highlights without comments
@@ -19,9 +21,12 @@ function AnnotatablePage({
   const [activeIndex, setActiveIndex] = useState(null);
   const [activePendingIndex, setActivePendingIndex] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [stageDimensions, setStageDimensions] = useState({ width: stageWidth, height: stageHeight });
+
 
   const stageRef = useRef(null);
   const commentRef = useRef(null);
+  const containerRef = useRef(null);
 
   const [portalPos, setPortalPos] = useState({ top: 0, left: 0, visible: false });
 
@@ -41,48 +46,47 @@ function AnnotatablePage({
     localStorage.setItem(`pending-annotations-page-${pageNumber}`, JSON.stringify(pendingHighlights));
   }, [pendingHighlights, pageNumber]);
 
-  const updatePortalPosition = useCallback(() => {
-    const stageNode = stageRef.current;
-    if (!stageNode) return setPortalPos({ top: 0, left: 0, visible: false });
+ const updatePortalPosition = useCallback(() => {
+  const stageNode = stageRef.current;
+  if (!stageNode) return setPortalPos({ top: 0, left: 0, visible: false });
 
-    const containerRect = stageNode.container().getBoundingClientRect();
-    const scaleX = typeof stageNode.scaleX === "function" ? stageNode.scaleX() : 1;
-    const scaleY = typeof stageNode.scaleY === "function" ? stageNode.scaleY() : 1;
+  const containerRect = stageNode.container().getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
 
-    let targetAnnotation = null;
+  const scaleX = typeof stageNode.scaleX === "function" ? stageNode.scaleX() : 1;
+  const scaleY = typeof stageNode.scaleY === "function" ? stageNode.scaleY() : 1;
 
-    if (activeIndex != null && annotations[activeIndex]) {
-      const ann = annotations[activeIndex];
-      // Handle grouped annotations - use the first highlight for positioning
-      if (ann.type === "group" && ann.highlights && ann.highlights.length > 0) {
-        targetAnnotation = ann.highlights[0];
-      } else {
-        targetAnnotation = ann;
-      }
-    } else if (activePendingIndex != null && pendingHighlights[activePendingIndex]) {
-      targetAnnotation = pendingHighlights[activePendingIndex];
-    }
+  let targetAnnotation = null;
+  if (activeIndex != null && annotations[activeIndex]) {
+    const ann = annotations[activeIndex];
+    targetAnnotation = ann.type === "group" && ann.highlights?.length ? ann.highlights[0] : ann;
+  } else if (activePendingIndex != null && pendingHighlights[activePendingIndex]) {
+    targetAnnotation = pendingHighlights[activePendingIndex];
+  }
+  if (!targetAnnotation) return setPortalPos({ top: 0, left: 0, visible: false });
 
-    if (!targetAnnotation) {
-      return setPortalPos({ top: 0, left: 0, visible: false });
-    }
+  let top, left;
 
-    if (targetAnnotation.type === "freehand") {
-      const points = targetAnnotation.points;
-      if (points.length < 2) return setPortalPos({ top: 0, left: 0, visible: false });
+  if (targetAnnotation.type === "freehand") {
+    const points = targetAnnotation.points;
+    const lastX = points[points.length - 2];
+    const lastY = points[points.length - 1];
+    top = containerRect.top + lastY * scaleY;
+    left = containerRect.left + lastX * scaleX + 12;
+  } else {
+    top = containerRect.top + targetAnnotation.y * scaleY;
+    left = containerRect.left + (targetAnnotation.x + targetAnnotation.width) * scaleX + 12;
+  }
 
-      const lastX = points[points.length - 2];
-      const lastY = points[points.length - 1];
-      const top = containerRect.top + lastY * scaleY;
-      const left = containerRect.left + lastX * scaleX + 12;
+  // Clamp within viewport
+  const bubbleWidth = 320; // max-width of bubble
+  const bubbleHeight = 150; // estimated height
+  left = Math.min(Math.max(8, left), viewportWidth - bubbleWidth - 8);
+  top = Math.min(Math.max(8, top), viewportHeight - bubbleHeight - 8);
 
-      setPortalPos({ top, left, visible: true });
-    } else {
-      const top = containerRect.top + targetAnnotation.y * scaleY;
-      const left = containerRect.left + (targetAnnotation.x + targetAnnotation.width) * scaleX + 12;
-      setPortalPos({ top, left, visible: true });
-    }
-  }, [activeIndex, activePendingIndex, annotations, pendingHighlights]);
+  setPortalPos({ top, left, visible: true });
+}, [activeIndex, activePendingIndex, annotations, pendingHighlights]);
 
   useEffect(() => {
     updatePortalPosition();
@@ -299,10 +303,10 @@ function AnnotatablePage({
   };
 
   return (
-    <>
+    <div ref={containerRef} className={styles.pageContainer}>
       <Stage
-        width={2000}
-        height={700}
+        width={stageDimensions.width}
+        height={stageDimensions.height}
         ref={stageRef}
         onMouseDown={handleMouseDown}
         onTouchStart={handleMouseDown}
@@ -310,7 +314,6 @@ function AnnotatablePage({
         onTouchMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onTouchEnd={handleMouseUp}
-        style={{ backgroundImage: `url(${pageImage})`, backgroundSize: "cover", backgroundPosition: "center" }}
         className={styles.stage}
       >
         <Layer>
@@ -398,6 +401,13 @@ function AnnotatablePage({
         </Layer>
       </Stage>
 
+      {/* Background image */}
+      <img 
+        src={pageImage} 
+        alt={`Page ${pageNumber}`}
+        className={styles.pageImage}
+      />
+
       {/* Comment bubble */}
       {portalPos.visible && (activeIndex != null || activePendingIndex != null) && (
         ReactDOM.createPortal(
@@ -407,12 +417,13 @@ function AnnotatablePage({
             style={{ position: "absolute", top: portalPos.top, left: portalPos.left, zIndex: 1000 }}
             onClick={e => e.stopPropagation()}
           >
+            <div className={styles.commentArrow} />
             <textarea
               rows={3}
               placeholder={activePendingIndex != null ? "Add comment to group all highlights..." : "Add comment..."}
               value={getCurrentComment()}
               onChange={handleCommentChange}
-              autoFocus={isEditing}
+              autoFocus={false} 
               className={styles.commentTextarea}
             />
             <button onClick={handleDelete} className={styles.deleteButton}>Delete</button>
@@ -425,7 +436,7 @@ function AnnotatablePage({
           document.body
         )
       )}
-    </>
+    </div>
   );
 }
 
