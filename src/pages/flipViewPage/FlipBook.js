@@ -377,42 +377,41 @@ const updateBookSize = () => {
   }, [bookmarks]);
 
   // Initialize / reinit flipbook once pageImages are ready
-  useEffect(() => {
-    if (pageImages.length > 0 && containerRef.current) {
-      // destroy existing
-      if (flipbookRef.current) {
-        try {
-          flipbookRef.current.turn("destroy");
-        } catch (e) {
-          console.warn('Error destroying flipbook:', e);
-        }
-        flipbookRef.current = null;
-      }
+ const prevPageImagesRef = useRef([]);
+const prevBookSizeRef = useRef(null);
 
-      // small delay to ensure DOM updated
-      setTimeout(() => {
-        try {
-          if (containerRef.current) {
-            $(containerRef.current).turn(options);
-            flipbookRef.current = $(containerRef.current);
-          }
-        } catch (e) {
-          console.error('Error initializing flipbook:', e);
-        }
-      }, 100);
+useEffect(() => {
+  const pageImagesChanged = JSON.stringify(prevPageImagesRef.current) !== JSON.stringify(pageImages);
+  const bookSizeChanged = JSON.stringify(prevBookSizeRef.current) !== JSON.stringify(bookSize);
+
+  if (!pageImagesChanged && !bookSizeChanged) return;
+
+  prevPageImagesRef.current = pageImages;
+  prevBookSizeRef.current = bookSize;
+
+  if (!containerRef.current) return;
+
+  if (flipbookRef.current && flipbookRef.current.data('turn')) {
+    try {
+      flipbookRef.current.turn("destroy");
+    } catch (e) {
+      console.warn("Error destroying flipbook:", e);
     }
+    flipbookRef.current = null;
+  }
 
-    return () => {
-      if (flipbookRef.current) {
-        try {
-          flipbookRef.current.turn("destroy");
-        } catch (e) {
-          console.warn('Error cleaning up flipbook:', e);
-        }
+  setTimeout(() => {
+    try {
+      if (containerRef.current && !flipbookRef.current) {
+        $(containerRef.current).turn(options);
+        flipbookRef.current = $(containerRef.current);
       }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageImages, bookSize]);
+    } catch (e) {
+      console.error("Error initializing flipbook:", e);
+    }
+  }, 100);
+}, [pageImages, bookSize]);
+
 
   // disable flipbook when interacting or zoomed
   useEffect(() => {

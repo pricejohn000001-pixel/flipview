@@ -146,6 +146,7 @@ const ViewReportPage = () => {
             <p className={styles['no-results']}>No results found.</p>
           ) : (
             <>
+            <div className={styles['table-container']}>
               <table className={styles['results-table']}>
                 <thead>
                   <tr>
@@ -195,6 +196,7 @@ const ViewReportPage = () => {
                   ))}
                 </tbody>
               </table>
+            </div>
 
               {/* Pagination */}
               <div className={styles['pagination']}>

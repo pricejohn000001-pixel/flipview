@@ -12,12 +12,12 @@
 
 .search-card,
 .results-card {
-  background: #ffffff;
+  width: 90%;
+  max-width: 1200px;
   padding: 2rem;
   border-radius: 1rem;
+  background: #ffffff;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
-  width: 100%;
-  max-width: 1200px;
   margin-bottom: 2rem;
   transition: box-shadow 0.3s ease-in-out;
 }
@@ -204,4 +204,19 @@ select:focus {
 .disposed {
   background-color: #10b981; /* green */
 }
+
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table-container::-webkit-scrollbar {
+  height: 8px;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 4px;
+}
+
 

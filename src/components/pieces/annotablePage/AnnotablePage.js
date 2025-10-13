@@ -414,7 +414,7 @@ function AnnotatablePage({
           <div
             ref={commentRef}
             className={styles.commentBubble}
-            style={{ position: "absolute", top: portalPos.top, left: portalPos.left, zIndex: 1000 }}
+            style={{ position: "absolute", top: portalPos.top, left: portalPos.left, zIndex: 2000 }}
             onClick={e => e.stopPropagation()}
           >
             <div className={styles.commentArrow} />
