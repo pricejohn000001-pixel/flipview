@@ -4,7 +4,6 @@ import "turn.js";
 import AnnotatablePage from "../../components/pieces/annotablePage/AnnotablePage";
 import {
   FaSave,
-  FaDrawPolygon,
   FaSquare,
   FaSearchPlus,
   FaSearchMinus,
@@ -14,7 +13,10 @@ import {
   FaChevronLeft,
   FaChevronRight,
   FaCircle,
+  FaHighlighter
 } from "react-icons/fa";
+import { MdHighlightAlt } from "react-icons/md";
+import { TbHighlight } from "react-icons/tb";
 import { HexColorPicker } from "react-colorful";
 import styles from './flipbook.module.css';
 import { useLocation } from "react-router-dom/cjs/react-router-dom";
@@ -30,6 +32,7 @@ function FlipBook() {
   // UI / interaction states
   const [isDrawing, setIsDrawing] = useState(false);
   const [isFreehand, setIsFreehand] = useState(false);
+  const [freehandWithComment, setFreehandWithComment] = useState(true); 
   const [isCommentOpen, setIsCommentOpen] = useState(false);
   const [highlightColor, setHighlightColor] = useState("#fffb00");
   const [isZoomed, setIsZoomed] = useState(false);
@@ -596,7 +599,7 @@ useEffect(() => {
       </div>
     );
   }
-console.log(isMobile)
+
   return (
     <div className={styles.container}>
       {/* Floating Toolbar */}
@@ -618,23 +621,43 @@ console.log(isMobile)
               }}
               title="Draw Rectangle"
             >
-              <FaSquare />
+              <MdHighlightAlt />
             </button>
 
             {/* Freehand Toggle */}
             <button
-              className={`${styles.toolbarButton} ${(isFreehand && isDrawing) ? styles.active : ''}`}
+              className={`${styles.toolbarButton} ${(isFreehand && isDrawing && freehandWithComment) ? styles.active : ''}`}
               onClick={() => {
-                if (!isDrawing || !isFreehand) {
+                // if already active, toggle off; otherwise enable freehand-with-comment
+                if (isFreehand && isDrawing && freehandWithComment) {
+                  setIsDrawing(false);
+                } else {
                   setIsFreehand(true);
                   setIsDrawing(true);
-                } else {
-                  setIsDrawing(false);
+                  setFreehandWithComment(true);
                 }
               }}
-              title="Draw Freehand"
+              title="Freehand (opens comment)"
             >
-              <FaDrawPolygon />
+              <TbHighlight />
+            </button>
+
+            {/* Freehand without comment (instant save) */}
+            <button
+              className={`${styles.toolbarButton} ${(isFreehand && isDrawing && !freehandWithComment) ? styles.active : ''}`}
+              onClick={() => {
+                // if already active, toggle off; otherwise enable freehand-no-comment
+                if (isFreehand && isDrawing && !freehandWithComment) {
+                  setIsDrawing(false);
+                } else {
+                  setIsFreehand(true);
+                  setIsDrawing(true);
+                  setFreehandWithComment(false);
+                }
+              }}
+              title="Freehand (save immediately, no comment box)"
+            >
+              <FaHighlighter />
             </button>
 
             <button
@@ -808,6 +831,7 @@ console.log(isMobile)
                     setIsCommentOpen={setIsCommentOpen}
                     stageWidth={bookSize.width}
                     stageHeight={bookSize.height}
+                    freehandOpensComment={freehandWithComment} 
                   />
                 </div>
               );

@@ -12,7 +12,8 @@ function AnnotatablePage({
   setIsCommentOpen,
   brushSize,
   stageWidth = 500,
-  stageHeight = 700
+  stageHeight = 700,
+  freehandOpensComment = true,
 }) {
   const [annotations, setAnnotations] = useState([]);
   const [pendingHighlights, setPendingHighlights] = useState([]); // Highlights without comments
@@ -174,12 +175,32 @@ function AnnotatablePage({
     if (!isDrawing) return;
 
     if (isFreehand && newFreehand) {
-      // Add to pending highlights
-      setPendingHighlights((prev) => [...prev, newFreehand]);
-      setActivePendingIndex(pendingHighlights.length);
-      setIsEditing(true);
-      setNewFreehand(null);
+      if (freehandOpensComment) {
+        // existing behavior: push to pending and open comment
+        setPendingHighlights((prev) => {
+          const newArr = [...prev, newFreehand];
+          const idx = newArr.length - 1;
+          setActivePendingIndex(idx);
+          setIsEditing(true);
+          setIsCommentOpen(true);
+          return newArr;
+        });
+        setNewFreehand(null);
+      } else {
+        // NEW: save the freehand stroke immediately as an annotation (no comment bubble)
+        const newAnnotation = {
+          ...newFreehand,
+          type: "freehand",
+          comments: [] // no comment
+        };
+        setAnnotations(prev => [...prev, newAnnotation]);
+        setActiveIndex(null);
+        setActivePendingIndex(null);
+        setIsEditing(false);
+        setNewFreehand(null);
+      }
     } else if (!isFreehand && newRect) {
+      // existing rect handling (unchanged)
       if (Math.abs(newRect.width) > 5 && Math.abs(newRect.height) > 5) {
         let x = newRect.x;
         let y = newRect.y;
@@ -204,6 +225,7 @@ function AnnotatablePage({
       setNewRect(null);
     }
   };
+
 
   const handleAnnotationClick = (index, e, isPending = false) => {
     e.cancelBubble = true;
