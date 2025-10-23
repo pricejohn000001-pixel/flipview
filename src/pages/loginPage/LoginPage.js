@@ -20,7 +20,7 @@ const LoginPage = () => {
     const role = localStorage.getItem('role');
     if (token && role) {
       if (role === '1') history.push('/form');
-      else if (role === '2') history.push('/dashboard2');
+      else if (role === '2') history.push('/view-report');
     }
   }, [history]);
 

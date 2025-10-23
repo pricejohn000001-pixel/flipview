@@ -21,6 +21,7 @@ const ViewReportPage = () => {
   const totalPages = Math.ceil(total / perPage);
 
   const token = localStorage.getItem('token');
+  const role = localStorage.getItem('role'); 
 
   // Fetch case types for dropdowns
   useEffect(() => {
@@ -55,7 +56,18 @@ const ViewReportPage = () => {
         orderDate: filterDate ? filterDate.toISOString().split('T')[0] : undefined,
       };
 
-      const res = await axios.get(`${process.env.BACKEND_BASE_URL}admin/order-data`, {
+      let endpoint = '';
+      if (role === '1') {
+        endpoint = 'admin/order-data';
+      } else if (role === '2') {
+        endpoint = 'user/order-data'; // Adjust this to the correct endpoint for role 2
+      } else {
+        // fallback or unauthorized
+        console.warn('Unknown role:', role);
+        return;
+      }
+
+      const res = await axios.get(`${process.env.BACKEND_BASE_URL}${endpoint}`, {
         headers: { Authorization: `Bearer ${token}` },
         params,
       });
@@ -186,7 +198,7 @@ const ViewReportPage = () => {
                       </td>
                       <td>
                         <Link
-                          to={`/report-edit?pdfName=${process.env.BACKEND_PDF_URL}${item.pdfName}`}
+                          to={`/report-edit?pdfName=${process.env.BACKEND_PDF_URL}${item.pdfName}&pdf_id=${item.pdf_id}`}
                           target="_blank"
                         >
                           View PDF
