@@ -4,7 +4,10 @@ import 'react-datepicker/dist/react-datepicker.css';
 import styles from './ViewReportPage.module.css';
 import Navbar from '../../components/pieces/navbar/Navbar';
 import axios from 'axios';
-import { Link } from 'react-router-dom';
+import { useHistory } from 'react-router-dom';
+import { usePdf } from '../../utils/helpers/pdfContext';
+
+
 
 const ViewReportPage = () => {
   const [lcrTypes, setLcrTypes] = useState([]);
@@ -17,13 +20,23 @@ const ViewReportPage = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [perPage, setPerPage] = useState(5);
   const [total, setTotal] = useState(0);
+  const { setPdfData } = usePdf();
+const history = useHistory();
+
 
   const totalPages = Math.ceil(total / perPage);
 
   const token = localStorage.getItem('token');
   const role = localStorage.getItem('role'); 
 
-  // Fetch case types for dropdowns
+  const handleViewPdf = (item) => {
+    sessionStorage.setItem("pdfUrl", `${process.env.BACKEND_PDF_URL}${item.pdfName}`);
+    sessionStorage.setItem("pdfId", item.pdf_id);
+
+    window.open("/report-edit", "_blank");
+  };
+
+
   useEffect(() => {
     const fetchCaseTypes = async () => {
       try {
@@ -62,7 +75,6 @@ const ViewReportPage = () => {
       } else if (role === '2') {
         endpoint = 'user/order-data'; // Adjust this to the correct endpoint for role 2
       } else {
-        // fallback or unauthorized
         console.warn('Unknown role:', role);
         return;
       }
@@ -84,7 +96,6 @@ const ViewReportPage = () => {
     }
   };
 
-  // Initial fetch & whenever filters change
   useEffect(() => {
     fetchData(1);
   }, [filterLcrType, filterHcType, filterDate]);
@@ -197,12 +208,10 @@ const ViewReportPage = () => {
                         </span>
                       </td>
                       <td>
-                        <Link
-                          to={`/report-edit?pdfName=${process.env.BACKEND_PDF_URL}${item.pdfName}&pdf_id=${item.pdf_id}`}
-                          target="_blank"
-                        >
-                          View PDF
-                        </Link>
+                        <button onClick={() => handleViewPdf(item)}>
+                View PDF
+              </button>
+
                       </td>
                     </tr>
                   ))}

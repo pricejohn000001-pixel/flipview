@@ -1,9 +1,7 @@
 import React, { memo, useMemo, useCallback, lazy, Suspense, useState, useEffect, useRef } from "react";
 import $ from "jquery";
 import "turn.js";
-import { useLocation } from "react-router-dom/cjs/react-router-dom";
 
-// Custom hooks
 import {
   usePDFLoader,
   useAnnotations,
@@ -13,26 +11,20 @@ import {
   useFlipbook
 } from './hooks';
 
-// Lazy load components for better performance
 const Toolbar = lazy(() => import('./components/Toolbar'));
 const ColorPalette = lazy(() => import('./components/ColorPalette'));
 const Sidebar = lazy(() => import('./components/Sidebar'));
 const PageNavigation = lazy(() => import('./components/PageNavigation'));
 const PageRenderer = lazy(() => import('./components/PageRenderer'));
 
-// Import UI components directly (not lazy loaded as they're small)
 import { LoadingSpinner, ErrorDisplay, ZoomOverlay } from './components/UIComponents';
 
-// Utils and constants
 import { isMobileDevice, getFlipbookClasses, getFlipbookStyle } from './utils/flipbookUtils';
 import { MOBILE_BREAKPOINT } from './constants/flipbookConstants';
 
-// Styles
 import styles from './flipbook.module.css';
+import { usePdf } from "../../utils/helpers/pdfContext";
 
-/**
- * Loading fallback component
- */
 const ComponentLoader = memo(() => (
   <div style={{ 
     display: 'flex', 
@@ -47,26 +39,13 @@ const ComponentLoader = memo(() => (
 
 ComponentLoader.displayName = 'ComponentLoader';
 
-/**
- * Optimized and modular FlipBook component with performance enhancements
- * Features:
- * - Lazy loading of components
- * - Memoization of expensive calculations
- * - Optimized re-renders
- * - Better memory management
- */
-function FlipBookOptimized() {
-  const location = useLocation();
-  const queryParams = new URLSearchParams(location.search);
-  const pdfUrl = queryParams.get('pdfName');
-  const pdfId = queryParams.get('pdf_id');
-  const token = localStorage.getItem('token');
 
-  // Mobile detection - exact original logic
+function FlipBookOptimized() {
+  const { pdfUrl, pdfId } = usePdf(); 
+  const token = localStorage.getItem('token');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= MOBILE_BREAKPOINT);
   const [bookSize, setBookSize] = useState({ width: 1000, height: 700 });
 
-  // Custom hooks
   const {
     pageImages,
     thumbnails,

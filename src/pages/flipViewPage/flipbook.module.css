@@ -177,6 +177,7 @@
   max-width: 100%;
   overflow: hidden;
   margin: 0 auto;
+  transition: margin-left 0.2s ease-in-out;
 }
 
 /* Page Navigation */
