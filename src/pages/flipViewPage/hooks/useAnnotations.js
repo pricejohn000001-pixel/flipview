@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { API_ENDPOINTS } from '../constants/flipbookConstants';
 
 /**
  * Custom hook for managing annotations
@@ -16,13 +17,13 @@ export const useAnnotations = (pdfId, token) => {
     const fetchAnnotations = async () => {
       try {
         const response = await axios.get(
-          `${process.env.BACKEND_BASE_URL}user/pdf-anotaion?action=get-annotations`,
+          `${process.env.BACKEND_BASE_URL}${API_ENDPOINTS.GET_ANNOTATIONS}`,
           {
             params: { pdf_id: pdfId },
             headers: { Authorization: `Bearer ${token}` },
           }
         );
-
+        console.log(response);
         const annotationsData = response.data?.data || [];
         const annotationMap = {};
         annotationMap[pdfId] = {};
@@ -30,33 +31,42 @@ export const useAnnotations = (pdfId, token) => {
         (annotationsData.annotations || []).forEach((pageEntry) => {
           const pageNum = pageEntry.page_number;
 
-          // normalize shapes (if backend uses stroke_width, etc.)
-          const shapes = (pageEntry.shapes || []).map((s) => ({
-            ...s,
-            strokeWidth: s.stroke_width ?? s.strokeWidth ?? 2,
-          }));
-
-          // if backend returns comments array for that page, make a group object
-          const comments = pageEntry.comments || pageEntry.comments_list || [];
-
-          if (comments.length > 0) {
-            // create a single group containing the shapes + comments
-            annotationMap[pdfId][pageNum] = [
-              {
-                type: "group",
-                highlights: shapes,
-                comments: comments.map(c => ({
-                  text: c.text ?? c.comment ?? "",
-                  createdAt: c.created_at ?? c.createdAt ?? Date.now(),
-                  // include any id/link from backend, if present:
-                  id: c.id ?? c.comment_id ?? undefined,
-                })),
-              },
-            ];
-          } else {
-            // just the flat shapes
-            annotationMap[pdfId][pageNum] = shapes;
+          if (!annotationMap[pdfId][pageNum]) {
+            annotationMap[pdfId][pageNum] = [];
           }
+
+          // Each shape in the API response has its own ID, type, and comments
+          (pageEntry.shapes || []).forEach((shapeData) => {
+            // Convert points from [{x,y}] format to flat array [x1, y1, x2, y2, ...]
+            const normalizePoints = (pts) => {
+              if (!pts || !Array.isArray(pts)) return null;
+              return pts.flatMap(p => [p.x, p.y]);
+            };
+
+            const shape = {
+              id: shapeData.id,
+              type: shapeData.type === "highlight" ? "rect" : shapeData.type, // normalize "highlight" to "rect"
+              x: shapeData.x,
+              y: shapeData.y,
+              width: shapeData.width,
+              height: shapeData.height,
+              points: shapeData.points ? normalizePoints(shapeData.points) : null,
+              color: shapeData.color,
+              strokeWidth: shapeData.stroke_width ?? shapeData.strokeWidth ?? 2,
+              annotationId: pageEntry.id,
+            };
+
+            // Attach comments to this specific shape
+            if (shapeData.comments && shapeData.comments.length > 0) {
+              shape.comments = shapeData.comments.map(c => ({
+                text: c.text ?? "",
+                createdAt: c.created_at ?? Date.now(),
+                id: c.id ?? undefined,
+              }));
+            }
+
+            annotationMap[pdfId][pageNum].push(shape);
+          });
         });
 
         console.log("Fetched server annotations:", annotationMap);
@@ -121,78 +131,116 @@ export const useAnnotations = (pdfId, token) => {
       const localAnnotations = localEntry.annotations || [];
       const pendingAnnotations = localEntry.pending || [];
 
-      // We'll store final shapes array and comments array
+      // We'll store final shapes array (comments attached to each shape)
       const shapes = [];
-      const comments = [];
 
       // dedupe by id if present, otherwise by fingerprint
       const seenIds = new Set();
       const seenFP = new Set();
 
-      const addShape = (s) => {
+      // Track which IDs are from the server (already saved)
+      const serverShapeIds = new Set();
+      serverShapes.forEach((item) => {
+        // Extract shape IDs from server annotations
+        if (item.id) {
+          serverShapeIds.add(item.id);
+        }
+        if (item.type === "group" && Array.isArray(item.highlights)) {
+          item.highlights.forEach(h => {
+            if (h.id) serverShapeIds.add(h.id);
+          });
+        }
+      });
+
+      // Helper: convert points from [x1,y1,x2,y2,...] to [{x,y},{x,y}]
+      const convertPointsForAPI = (points) => {
+        if (!points || !Array.isArray(points)) return null;
+        const result = [];
+        for (let i = 0; i < points.length; i += 2) {
+          result.push({ x: points[i], y: points[i + 1] });
+        }
+        return result;
+      };
+
+      const addShape = (s, attachedComments = [], fromServer = false) => {
         if (!s) return;
         const id = s.id ?? s.tempId ?? null;
+        
+        // Don't add shapes that are from server (already saved)
+        if (fromServer) return;
+        
+        if (id && serverShapeIds.has(id)) {
+          // This shape is already on the server, skip it
+          return;
+        }
+        
         if (id) {
           if (seenIds.has(id)) return;
           seenIds.add(id);
-          shapes.push(s);
-          return;
+        } else {
+          const fp = fingerprint(s);
+          if (seenFP.has(fp)) return;
+          seenFP.add(fp);
         }
-        const fp = fingerprint(s);
-        if (seenFP.has(fp)) return;
-        seenFP.add(fp);
-        shapes.push(s);
+
+        // Build shape object for API
+        const shapeObj = {
+          type: s.type,
+          color: s.color,
+          stroke_width: s.strokeWidth ?? s.stroke_width ?? 2,
+        };
+
+        if (s.type === "freehand" && s.points) {
+          shapeObj.points = convertPointsForAPI(s.points);
+        } else if (s.type === "rect" || s.type === "highlight") {
+          shapeObj.x = s.x;
+          shapeObj.y = s.y;
+          shapeObj.width = s.width;
+          shapeObj.height = s.height;
+        }
+
+        // Attach comments to this shape
+        if (attachedComments.length > 0) {
+          shapeObj.comments = attachedComments.map(c => ({
+            text: c.text ?? ""
+          }));
+        }
+
+        shapes.push(shapeObj);
       };
 
       // Helper to process an annotation item that might be:
       // - a normal shape (freehand/rect)
       // - a group { type: "group", highlights: [...], comments: [...] }
-      const processAnnotationItem = (item) => {
+      const processAnnotationItem = (item, fromServer = false) => {
         if (!item) return;
         if (item.type === "group" && Array.isArray(item.highlights)) {
-          item.highlights.forEach(h => addShape(h));
-          // collect comments if present
-          if (Array.isArray(item.comments)) {
-            item.comments.forEach(c => {
-              if (!c) return;
-              // normalize comment object: { text, createdAt, ... }
-              comments.push({
-                text: c.text ?? "",
-                created_at: c.createdAt ?? c.created_at ?? Date.now()
-              });
-            });
-          }
+          // Group: attach comments to each highlight
+          const groupComments = item.comments || [];
+          item.highlights.forEach(h => addShape(h, groupComments, fromServer));
           return;
         }
 
-        // normal single shape (might also contain comments on top-level)
-        addShape(item);
-        if (item.comments && Array.isArray(item.comments)) {
-          item.comments.forEach(c => {
-            if (!c) return;
-            comments.push({
-              text: c.text ?? "",
-              created_at: c.createdAt ?? c.created_at ?? Date.now()
-            });
-          });
-        }
+        // normal single shape (might have comments attached)
+        const shapeComments = item.comments || [];
+        addShape(item, shapeComments, fromServer);
       };
 
-      // process server shapes: they are likely already "flat" shapes (not groups)
-      serverShapes.forEach((s) => processAnnotationItem(s));
+      // Skip server shapes - they're already saved on the server
+      // serverShapes.forEach((s) => processAnnotationItem(s, true)); // Commented out to prevent duplicate saves
 
-      // process local (child-reported) annotations
-      localAnnotations.forEach((a) => processAnnotationItem(a));
+      // process local (child-reported) annotations - these are NEW
+      localAnnotations.forEach((a) => processAnnotationItem(a, false));
 
       // pending highlights (user-drawn but not grouped yet) — include them too
       pendingAnnotations.forEach((p) => {
         // if pending is a freehand/rect then it's a shape
         // if pending were group-like (unlikely) handle generically
-        processAnnotationItem(p);
+        processAnnotationItem(p, false);
       });
 
       // If nothing to save for this page, skip
-      if (shapes.length === 0 && comments.length === 0) {
+      if (shapes.length === 0) {
         continue;
       }
 
@@ -200,7 +248,6 @@ export const useAnnotations = (pdfId, token) => {
         pdf_id: pdfId,
         page_number: pageNum,
         shapes,
-        comments,
       };
 
       try {
@@ -209,7 +256,7 @@ export const useAnnotations = (pdfId, token) => {
           payload,
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        console.log(`Saved page ${pageNum}: shapes=${shapes.length} comments=${comments.length}`);
+        console.log(`Saved page ${pageNum}: shapes=${shapes.length}`);
       } catch (err) {
         console.error(`Failed to save annotations for page ${pageNum}`, err?.response?.data || err.message || err);
       }
@@ -218,10 +265,53 @@ export const useAnnotations = (pdfId, token) => {
     alert("Save finished (attempted all pages).");
   };
 
+  // Delete a single annotation from server
+  const deleteAnnotation = async (highlightId) => {
+    if (!highlightId || !pdfId) {
+      console.warn("No highlight ID or pdfId — cannot delete");
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        `${process.env.BACKEND_BASE_URL}user/pdf-anotaion?action=delete-annotation`,
+        { highlight_id: highlightId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      console.log(`Deleted highlight ${highlightId}:`, response.data);
+      return true;
+    } catch (err) {
+      console.error(`Failed to delete highlight ${highlightId}`, err?.response?.data || err.message || err);
+      return false;
+    }
+  };
+
+  // Update (store) comment against an existing highlight
+  const updateHighlightComment = async (annotationId, highlightId, text) => {
+    if (!annotationId || !highlightId || !text) {
+      console.warn('Missing annotationId, highlightId, or text — cannot update comment');
+      return false;
+    }
+    try {
+      const response = await axios.post(
+        `${process.env.BACKEND_BASE_URL}user/pdf-anotaion?action=update-store-coment`,
+        { annotation_id: annotationId, highlight_id: highlightId, text },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      console.log('Updated comment mapping:', response.data);
+      return true;
+    } catch (err) {
+      console.error('Failed to update comment mapping', err?.response?.data || err.message || err);
+      return false;
+    }
+  };
+
   return {
     serverAnnotations,
     localAnnotationsByPage,
     handleAnnotationsChange,
-    saveAnnotations
+    saveAnnotations,
+    deleteAnnotation,
+    updateHighlightComment
   };
 };

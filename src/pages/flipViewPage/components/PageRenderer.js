@@ -19,7 +19,9 @@ const PageRenderer = memo(({
   freehandWithComment,
   serverAnnotations,
   onAnnotationsChange,
-  isEraser
+  isEraser,
+  onDeleteAnnotation,
+  onUpdateHighlightComment
 }) => {
   return (
     <>
@@ -43,6 +45,8 @@ const PageRenderer = memo(({
               serverAnnotations={serverAnnotations}
               onAnnotationsChange={onAnnotationsChange}
               eraserMode={isEraser}
+              onDeleteAnnotation={onDeleteAnnotation}
+              onUpdateHighlightComment={onUpdateHighlightComment}
             />
           </div>
         );

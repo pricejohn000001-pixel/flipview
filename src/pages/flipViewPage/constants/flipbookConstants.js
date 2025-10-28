@@ -88,5 +88,6 @@ export const STORAGE_KEYS = {
 // API endpoints
 export const API_ENDPOINTS = {
   GET_ANNOTATIONS: 'user/pdf-anotaion?action=get-annotations',
-  STORE_ANNOTATIONS: 'user/pdf-anotaion?action=store-anotation'
+  STORE_ANNOTATIONS: 'user/pdf-anotaion?action=store-anotation',
+  UPDATE_ANNOTATIONS: 'user/pdf-anotaion?action=update-annotation'
 };

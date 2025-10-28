@@ -80,7 +80,9 @@ function FlipBookOptimized() {
     serverAnnotations,
     localAnnotationsByPage,
     handleAnnotationsChange,
-    saveAnnotations
+    saveAnnotations,
+    deleteAnnotation,
+    updateHighlightComment
   } = useAnnotations(pdfId, token);
 
   const {
@@ -378,6 +380,8 @@ function FlipBookOptimized() {
                 serverAnnotations={serverAnnotations}
                 onAnnotationsChange={handleAnnotationsChange}
                 isEraser={isEraser}
+                onDeleteAnnotation={deleteAnnotation}
+                onUpdateHighlightComment={updateHighlightComment}
               />
             </Suspense>
           </div>

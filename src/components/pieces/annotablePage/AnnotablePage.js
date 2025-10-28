@@ -19,6 +19,8 @@ function AnnotatablePage({
   serverAnnotations = [],
   onAnnotationsChange,
   eraserMode = false,
+  onDeleteAnnotation,
+  onUpdateHighlightComment,
 }) {
   const [annotations, setAnnotations] = useState([]);
   const [pendingHighlights, setPendingHighlights] = useState([]);
@@ -27,6 +29,7 @@ function AnnotatablePage({
   const [activeIndex, setActiveIndex] = useState(null);
   const [activePendingIndex, setActivePendingIndex] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [pendingComment, setPendingComment] = useState("");
 
   // stageSizing + image object
   const [stageDimensions, setStageDimensions] = useState({ width: stageWidth, height: stageHeight });
@@ -186,7 +189,10 @@ useEffect(() => {
     let target = null;
     if (activeIndex != null && annotations[activeIndex]) {
       const ann = annotations[activeIndex];
-      target = ann.type === "group" && ann.highlights?.length ? ann.highlights[0] : ann;
+      // For groups, use the LAST highlight (most recently added)
+      target = ann.type === "group" && ann.highlights?.length 
+        ? ann.highlights[ann.highlights.length - 1] 
+        : ann;
     } else if (activePendingIndex != null && pendingHighlights[activePendingIndex]) {
       target = pendingHighlights[activePendingIndex];
     }
@@ -230,9 +236,16 @@ useEffect(() => {
   // --------------------
   // Document click to close bubble
   // --------------------
+  const maybeCommitComment = () => {
+    if (activeIndex != null && isEditing) {
+      handleCommentBlur();
+    }
+  };
+
   useEffect(() => {
     const handleDocDown = (e) => {
       if (commentRef.current && commentRef.current.contains(e.target)) return;
+      maybeCommitComment();
       setActiveIndex(null);
       setActivePendingIndex(null);
       setIsEditing(false);
@@ -244,7 +257,7 @@ useEffect(() => {
       document.removeEventListener("mousedown", handleDocDown);
       document.removeEventListener("touchstart", handleDocDown);
     };
-  }, [setIsCommentOpen]);
+  }, [setIsCommentOpen, activeIndex, isEditing]);
 
   // --------------------
   // Drawing handlers (FIXED: allow clicks on Image; use stageRef for pointer during moves)
@@ -345,12 +358,16 @@ useEffect(() => {
   // --------------------
   const handleAnnotationClick = (index, e, isPending = false) => {
     e.cancelBubble = true;
+    // Save pending comment if switching to another annotation
+    maybeCommitComment();
     if (isPending) {
       setActivePendingIndex(index);
       setActiveIndex(null);
+      setPendingComment(pendingHighlights[index]?.comments?.[0]?.text || "");
     } else {
       setActiveIndex(index);
       setActivePendingIndex(null);
+      setPendingComment(annotations[index]?.comments?.[0]?.text || "");
     }
     setIsEditing(true);
     setIsCommentOpen(true);
@@ -358,6 +375,7 @@ useEffect(() => {
 
   const handleCommentChange = (e) => {
     const commentText = e.target.value;
+    setPendingComment(commentText);
     // Completing pending -> create group with pending highlights
     if (activePendingIndex != null && commentText.trim() !== "") {
       setAnnotations((prev) => {
@@ -374,8 +392,7 @@ useEffect(() => {
       });
       return;
     }
-
-    // Editing existing annotation comment
+    // Editing existing annotation comment (still update React state for UI, but don't call API yet)
     if (activeIndex != null) {
       setAnnotations((prev) => {
         const copy = [...prev];
@@ -386,7 +403,21 @@ useEffect(() => {
     }
   };
 
+  const handleCommentBlur = () => {
+    if (activeIndex != null && annotations[activeIndex]) {
+      const ann = annotations[activeIndex];
+      const target = ann.type === 'group' && ann.highlights?.length ? ann.highlights[ann.highlights.length - 1] : ann;
+      const annotationId = target?.annotationId || ann?.annotationId;
+      const highlightId = target?.id;
+      const text = (ann.comments && ann.comments[0]?.text) || pendingComment || "";
+      if (annotationId && highlightId && typeof onUpdateHighlightComment === 'function') {
+        onUpdateHighlightComment(annotationId, highlightId, text);
+      }
+    }
+  };
+
   const handleDelete = () => {
+    maybeCommitComment();
     if (activeIndex != null) {
       setAnnotations((prev) => prev.filter((_, i) => i !== activeIndex));
       setActiveIndex(null);
@@ -398,10 +429,9 @@ useEffect(() => {
     setIsCommentOpen(false);
   };
 
-   const handleErase = (annIndex, highlightIndex = null, isPending = false) => {
+   const handleErase = async (annIndex, highlightIndex = null, isPending = false) => {
     if (isPending) {
       setPendingHighlights((prev) => prev.filter((_, i) => i !== annIndex));
-      // clear selection if relevant
       if (activePendingIndex === annIndex) setActivePendingIndex(null);
       return;
     }
@@ -411,32 +441,51 @@ useEffect(() => {
       const item = copy[annIndex];
       if (!item) return prev;
 
-      // If item is a group and highlightIndex provided -> remove that highlight
+      let idToDelete = null;
+
+      // --- If item is a grouped annotation ---
       if (item.type === "group" && typeof highlightIndex === "number") {
+        const highlightToDelete = item.highlights[highlightIndex];
+        idToDelete = highlightToDelete?.id;
+
+        // Remove that highlight
         item.highlights.splice(highlightIndex, 1);
-        // if group loses all highlights -> remove the group
+
+        if (item.comments && item.comments.length > 0) {
+          item.comments = []; // Clear the group's comments
+        }
+
         if (!item.highlights || item.highlights.length === 0) {
           copy.splice(annIndex, 1);
         }
-      } else if (item.type === "group" && highlightIndex == null) {
-        // remove entire group
+      } 
+      else if (item.type === "group" && highlightIndex == null) {
+        idToDelete = item.id;
         copy.splice(annIndex, 1);
-      } else {
-        // single annotation (freehand/rect) -> remove it
+      } 
+      else {
+        // Single shape annotation
+        idToDelete = item.id;
         copy.splice(annIndex, 1);
       }
 
-      // clear active selection if needed
       if (activeIndex === annIndex) setActiveIndex(null);
+
+      // Call delete API if this annotation has a server ID
+      if (idToDelete && onDeleteAnnotation) {
+        onDeleteAnnotation(idToDelete).catch(err => {
+          console.error('Failed to delete from server:', err);
+        });
+      }
+
       return copy;
     });
   };
 
+
   const getCurrentComment = () => {
-    if (activeIndex != null && annotations[activeIndex]) {
-      return annotations[activeIndex].comments?.[0]?.text || "";
-    }
-    return "";
+    // Always return the pending comment for the currently open textarea
+    return pendingComment;
   };
 
   // --------------------
@@ -622,22 +671,29 @@ useEffect(() => {
 
         {annotations.map((ann, i) => {
         if (!ann.comments?.length) return null;
-        const firstHighlight =
-          ann.type === "group" && ann.highlights?.length ? ann.highlights[0] : ann;
+        
+        // For groups, use the LAST highlight (most recently added). For single annotations with comments, use the annotation itself.
+        const targetShape = ann.type === "group" && ann.highlights?.length 
+          ? ann.highlights[ann.highlights.length - 1] 
+          : ann;
+        
         const w = stageDimensions.width;
         const h = stageDimensions.height;
 
         let x = 0,
           y = 0;
-        if (firstHighlight.type === "freehand") {
-          const den = denormalizeFreehand(firstHighlight, w, h);
+        if (targetShape.type === "freehand") {
+          const den = denormalizeFreehand(targetShape, w, h);
           const pts = den.points;
           x = pts[pts.length - 2];
           y = pts[pts.length - 1];
-        } else {
-          const den = denormalizeRect(firstHighlight, w, h);
+        } else if (targetShape.type === "rect") {
+          const den = denormalizeRect(targetShape, w, h);
           x = den.x + den.width + 5;
           y = den.y;
+        } else {
+          // Handle other shape types
+          return null;
         }
 
         return (
@@ -646,8 +702,8 @@ useEffect(() => {
             onClick={(e) => handleAnnotationClick(i, e, false)}
             style={{
               position: "absolute",
-              left: x,
-              top: y,
+              left: `${x}px`,
+              top: `${y}px`,
               cursor: "pointer",
               zIndex: 1000,
               fontSize: "20px",
@@ -658,7 +714,8 @@ useEffect(() => {
       })}
 
       {/* Comment bubble portal */}
-      {portalPos.visible && (activeIndex != null || activePendingIndex != null) &&
+      {portalPos.visible &&
+        ((activeIndex != null && annotations[activeIndex]) || (activePendingIndex != null && pendingHighlights[activePendingIndex])) &&
         ReactDOM.createPortal(
           <div
             ref={commentRef}
@@ -672,10 +729,20 @@ useEffect(() => {
               placeholder={activePendingIndex != null ? "Add comment to group all highlights..." : "Add comment..."}
               value={getCurrentComment()}
               onChange={handleCommentChange}
+              onBlur={handleCommentBlur}
               autoFocus={false}
               className={styles.commentTextarea}
             />
-            <button onClick={handleDelete} className={styles.deleteButton}>Delete</button>
+            {/* <button onClick={() => {
+                // Add a small delay before hiding the bubble to allow React to unmount safely
+                setIsEditing(false);
+                setTimeout(() => {
+                  setActiveIndex(null);
+                  setActivePendingIndex(null);
+                  setIsCommentOpen(false);
+                }, 30);
+              }} 
+              className={styles.deleteButton}>Delete</button> */}
             {pendingHighlights.length > 0 && (
               <div className={styles.pendingInfo}>{pendingHighlights.length} highlight(s) pending grouping</div>
             )}
