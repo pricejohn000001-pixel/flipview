@@ -73,7 +73,10 @@ function FlipBookOptimized() {
     handleZoomOut,
     handleZoomReset,
     handleMouseDown,
-    handleWheel
+    handleWheel,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp
   } = useZoom();
 
   const {
@@ -269,8 +272,12 @@ function FlipBookOptimized() {
   }, [saveAnnotations, pageImages, totalPages]);
 
   const handleMouseDownWrapper = useCallback((e) => {
-    handleMouseDown(e, isDrawing, isCommentOpen);
-  }, [handleMouseDown, isDrawing, isCommentOpen]);
+    handleMouseDown(e, isDrawing, isCommentOpen, isEraser);
+  }, [handleMouseDown, isDrawing, isCommentOpen, isEraser]);
+
+  const handlePointerDownWrapper = useCallback((e) => {
+    handlePointerDown(e, isDrawing, isCommentOpen, isEraser);
+  }, [handlePointerDown, isDrawing, isCommentOpen, isEraser]);
 
   // Early returns for loading and error states
   if (loading || (pdfUrl && pageImages.length === 0)) {
@@ -341,8 +348,11 @@ function FlipBookOptimized() {
           <div
             ref={containerRef}
             className={memoizedFlipbookClasses}
-            style={memoizedFlipbookStyle}
+            style={{ ...memoizedFlipbookStyle, touchAction: 'none' }}
             onMouseDown={handleMouseDownWrapper}
+            onPointerDown={handlePointerDownWrapper}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
           >
             <Suspense fallback={<ComponentLoader />}>
               <PageRenderer

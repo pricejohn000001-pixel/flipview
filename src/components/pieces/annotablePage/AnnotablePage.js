@@ -700,6 +700,8 @@ useEffect(() => {
           <BiCommentDetail
             key={`icon-${i}`}
             onClick={(e) => handleAnnotationClick(i, e, false)}
+            onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+            onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
             style={{
               position: "absolute",
               left: `${x}px`,
@@ -722,6 +724,8 @@ useEffect(() => {
             className={styles.commentBubble}
             style={{ position: "absolute", top: portalPos.top, left: portalPos.left, zIndex: 2000 }}
             onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => { e.stopPropagation(); }}
+            onPointerDown={(e) => { e.stopPropagation(); }}
           >
             <div className={styles.commentArrow} />
             <textarea

@@ -79,6 +79,11 @@ export const getFlipbookClasses = (state) => {
 export const getFlipbookStyle = (zoomLevel, panOffset) => {
   return {
     transform: `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${panOffset.y / zoomLevel}px)`,
+    transformOrigin: 'center center',
+    willChange: 'transform',
+    backfaceVisibility: 'hidden',
+    WebkitFontSmoothing: 'antialiased',
+    WebkitTransform: `translateZ(0)`
   };
 };
 
