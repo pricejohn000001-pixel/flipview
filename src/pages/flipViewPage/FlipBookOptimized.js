@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useCallback, lazy, Suspense, useState, useEffect, useRef } from "react";
+import React, { memo, useMemo, useCallback, lazy, useState, useEffect, useRef } from "react";
 import $ from "jquery";
 import "turn.js";
 
@@ -24,21 +24,6 @@ import { MOBILE_BREAKPOINT } from './constants/flipbookConstants';
 
 import styles from './flipbook.module.css';
 import { usePdf } from "../../utils/helpers/pdfContext";
-
-const ComponentLoader = memo(() => (
-  <div style={{ 
-    display: 'flex', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    height: '50px',
-    color: '#e0e0e0'
-  }}>
-    Loading...
-  </div>
-));
-
-ComponentLoader.displayName = 'ComponentLoader';
-
 
 function FlipBookOptimized() {
   const { pdfUrl, pdfId } = usePdf(); 
@@ -291,7 +276,6 @@ function FlipBookOptimized() {
   return (
     <div className={styles.container}>
       {/* Floating Toolbar */}
-      <Suspense fallback={<ComponentLoader />}>
         <div style={memoizedToolbarPosition}>
           <Toolbar
             isDrawing={isDrawing}
@@ -308,10 +292,8 @@ function FlipBookOptimized() {
             isMobile={isMobile}
           />
         </div>
-      </Suspense>
 
       {/* Color Palette */}
-      <Suspense fallback={<ComponentLoader />}>
         <ColorPalette
           isFreehand={isFreehand}
           isDrawing={isDrawing}
@@ -321,10 +303,8 @@ function FlipBookOptimized() {
           setBrushSize={setBrushSize}
           isMobile={isMobile}
         />
-      </Suspense>
 
       {/* Sidebar */}
-      <Suspense fallback={<ComponentLoader />}>
         <Sidebar
           thumbnails={thumbnails}
           currentPage={currentPage}
@@ -336,7 +316,6 @@ function FlipBookOptimized() {
           isZoomed={isZoomed}
           isMobile={isMobile}
         />
-      </Suspense>
 
       {/* Main Content Area */}
       <div className={styles.mainContent}>
@@ -354,7 +333,6 @@ function FlipBookOptimized() {
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
           >
-            <Suspense fallback={<ComponentLoader />}>
               <PageRenderer
                 pageImages={pageImages}
                 pdfId={pdfId}
@@ -372,12 +350,10 @@ function FlipBookOptimized() {
                 onDeleteAnnotation={deleteAnnotation}
                 onUpdateHighlightComment={updateHighlightComment}
               />
-            </Suspense>
           </div>
         </div>
 
         {/* Page Navigation */}
-        <Suspense fallback={<ComponentLoader />}>
         <div style={memoizedPageNavigationPosition}>
           <PageNavigation
             currentPage={currentPage}
@@ -389,16 +365,13 @@ function FlipBookOptimized() {
             isMobile={isMobile}
           />
         </div>
-        </Suspense>
 
         {/* Zoom Overlay */}
-        <Suspense fallback={<ComponentLoader />}>
           <ZoomOverlay
             isZoomed={isZoomed}
             isDragging={isDragging}
             handleZoomReset={handleZoomReset}
           />
-        </Suspense>
       </div>
     </div>
   );
