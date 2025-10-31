@@ -87,7 +87,7 @@ const history = useHistory();
       const pageData = res?.data?.data?.data;
       const apiData = pageData?.data || [];
 
-      setRawData([...apiData].reverse()); // latest first
+      setRawData(apiData);
       setPerPage(pageData?.per_page || 5);
       setTotal(pageData?.total || apiData.length);
       setCurrentPage(pageData?.current_page || 1);
@@ -208,10 +208,9 @@ const history = useHistory();
                         </span>
                       </td>
                       <td>
-                        <button onClick={() => handleViewPdf(item)}>
-                View PDF
-              </button>
-
+                        <button className={styles['link-button']} onClick={() => handleViewPdf(item)}>
+                          View PDF
+                        </button>
                       </td>
                     </tr>
                   ))}

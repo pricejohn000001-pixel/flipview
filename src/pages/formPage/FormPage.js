@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Select from 'react-select/creatable';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -42,45 +42,48 @@ const FormPage = () => {
     { value: 'stayed', label: 'Stayed', icon: <FaPauseCircle color="#ef6c00" /> }
   ];
 
-  // 🔹 Fetch case types from backend
-  useEffect(() => {
-    const fetchCaseTypes = async () => {
-      try {
-        const [lcrRes, hcRes] = await Promise.all([
-          axios.get(`${process.env.BACKEND_BASE_URL}case-types?type=lcr`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          axios.get(`${process.env.BACKEND_BASE_URL}case-types?type=hcc`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-        ]);
+  // 🔹 Fetch case types from backend (reusable and returns options)
+  const fetchCaseTypes = useCallback(async () => {
+    try {
+      const [lcrRes, hcRes] = await Promise.all([
+        axios.get(`${process.env.BACKEND_BASE_URL}case-types?type=lcr`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        axios.get(`${process.env.BACKEND_BASE_URL}case-types?type=hcc`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
 
-        setLcrCaseOptions(
-          (lcrRes?.data?.data || []).map(opt => ({ label: opt.case_name, value: opt.id }))
-        );
-        setHcCaseOptions(
-          (hcRes?.data?.data || []).map(opt => ({ label: opt.case_name, value: opt.id }))
-        );
-      } catch (err) {
-        console.error('Error fetching case types:', err);
-      }
-    };
-
-    fetchCaseTypes();
+      const lcr = (lcrRes?.data?.data || []).map(opt => ({ label: opt.case_name, value: opt.id }));
+      const hcc = (hcRes?.data?.data || []).map(opt => ({ label: opt.case_name, value: opt.id }));
+      setLcrCaseOptions(lcr);
+      setHcCaseOptions(hcc);
+      return { lcr, hcc };
+    } catch (err) {
+      console.error('Error fetching case types:', err);
+      return { lcr: [], hcc: [] };
+    }
   }, [token]);
+
+  useEffect(() => {
+    fetchCaseTypes();
+  }, [fetchCaseTypes]);
 
   // 🔹 Add new LCR type
   const handleLcrTypeCreate = async (inputValue) => {
     try {
-      const res = await axios.post(
+      await axios.post(
         `${process.env.BACKEND_BASE_URL}case-types`,
         { case_name: inputValue, type: 'lcr' },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      const newOption = { label: res.data.data.case_name, value: res.data.data.id };
-      setLcrCaseOptions(prev => [...prev, newOption]);
-      setLcrCaseType(newOption);
+      // Refresh list to reliably get id from backend, then select the created option
+      const { lcr } = await fetchCaseTypes();
+      const match = lcr.find(opt => (opt.label || '').trim().toLowerCase() === inputValue.trim().toLowerCase());
+      if (match) {
+        setLcrCaseType(match);
+      }
     } catch (err) {
       console.error('Error creating LCR case type:', err);
     }
@@ -89,15 +92,18 @@ const FormPage = () => {
   // 🔹 Add new HCC type
   const handleHcTypeCreate = async (inputValue) => {
     try {
-      const res = await axios.post(
+      await axios.post(
         `${process.env.BACKEND_BASE_URL}case-types`,
         { case_name: inputValue, type: 'hcc' },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      const newOption = { label: res.data.data.case_name, value: res.data.data.id };
-      setHcCaseOptions(prev => [...prev, newOption]);
-      setHcCaseType(newOption);
+      // Refresh list to reliably get id from backend, then select the created option
+      const { hcc } = await fetchCaseTypes();
+      const match = hcc.find(opt => (opt.label || '').trim().toLowerCase() === inputValue.trim().toLowerCase());
+      if (match) {
+        setHcCaseType(match);
+      }
     } catch (err) {
       console.error('Error creating HCC case type:', err);
     }

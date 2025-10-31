@@ -13,7 +13,7 @@
 .search-card,
 .results-card {
   width: 90%;
-  max-width: 1200px;
+  max-width: 1300px;
   padding: 2rem;
   border-radius: 1rem;
   background: #ffffff;
@@ -219,4 +219,24 @@ select:focus {
   border-radius: 4px;
 }
 
+
+/* Link-style button for View PDF */
+.link-button {
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: #1976d2;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.link-button:hover {
+  color: #1565c0;
+}
+
+.link-button:focus {
+  outline: 2px solid #90caf9;
+  outline-offset: 2px;
+}
 
