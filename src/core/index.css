@@ -42,3 +42,5 @@ p {
   line-height: 1.5;
   margin: 0 0 20px 0;
 }
+.react-pdf__Page { pointer-events: auto !important; }
+.react-pdf__Page canvas { pointer-events: none; }
