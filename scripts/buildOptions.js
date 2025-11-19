@@ -32,6 +32,11 @@ const getBaseOptions = () => ({
   },
   resolve: {
     modules: [srcPath, 'node_modules'],
+    fallback: {
+      "fs": false,
+      "path": false,
+      "crypto": false,
+    },
   },
   module: {
     rules: [{
@@ -79,6 +84,9 @@ const getBaseOptions = () => ({
           },
         },
       ],
+    }, {
+      test: /\.wasm$/,
+      type: 'asset/resource',
     }],
   }, 
   plugins: [

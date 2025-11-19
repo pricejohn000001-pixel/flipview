@@ -12,19 +12,20 @@ import {
   MdFormatStrikethrough,
   MdFormatUnderlined,
   MdHighlight,
-  MdSearch,
   MdViewSidebar,
   MdFormatColorFill,
   MdBookmarkAdd,
   MdBookmark,
   MdChevronLeft,
   MdChevronRight,
-  MdZoomIn,
-  MdZoomOut,
-  MdClose,
+  MdContentCut,
 } from 'react-icons/md';
-import demoPdf from '../../assets/demo.pdf';
+import demoPdf from '../../assets/demmo.pdf';
 import styles from './documentWorkspace.module.css';
+import useOcr from './hooks/useOcr';
+import FloatingToolbar from './components/FloatingToolbar';
+import ClippingsPanel from './components/ClippingsPanel';
+import SearchPanel from './components/SearchPanel';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.3.93/pdf.worker.min.mjs`;
 
@@ -38,6 +39,7 @@ const TOOL_TYPES = [
   { id: 'freehand', label: 'Freehand', icon: MdBrush },
   { id: 'comment', label: 'Note', icon: MdComment },
   { id: 'bookmark', label: 'Bookmark', icon: MdBookmarkAdd },
+  { id: 'clip', label: 'Clip Area', icon: MdContentCut },
 ];
 
 const ANNOTATION_TYPES = ['highlight', 'underline', 'strike', 'freehand', 'comment'];
@@ -106,6 +108,33 @@ const DocumentWorkspacePage = () => {
   const viewerCanvasRef = useRef(null);
   const viewerZoomWrapperRef = useRef(null);
   const viewerDeckRef = useRef(null);
+
+  const {
+    ocrResults,
+    ocrProgress,
+    isOcrRunning,
+    runOcrOnPage,
+    runOcrOnAllPages,
+    extractTextFromArea,
+  } = useOcr({ pdfProxyRef });
+
+  const handleExtractClipFromArea = useCallback((clipRect, pageNumber) => {
+    extractTextFromArea(clipRect, pageNumber).then((result) => {
+      if (!result) return;
+      const newClip = {
+        id: createClippingId(),
+        content: result.text,
+        createdAt: new Date().toISOString(),
+        sourcePage: pageNumber,
+        sourceRect: clipRect,
+        confidence: result.confidence,
+        source: 'OCR',
+      };
+      setClippings((prev) => [newClip, ...prev]);
+      setSelectedClippings([]);
+      setActiveTool('select');
+    });
+  }, [extractTextFromArea]);
 
   const draggingAnnotationId = useRef(null);
   const draggingAnnotationMetaRef = useRef({ offsetX: 0, offsetY: 0, pageNumber: 1 });
@@ -265,6 +294,27 @@ const DocumentWorkspacePage = () => {
   const finalizeDrawing = useCallback((endPoint, overlayKey) => {
     if (!drawingState) return;
     const { type, start, points, pageNumber } = drawingState;
+    
+    // Handle clipping area selection
+    if (type === 'clip') {
+      const w = Math.abs(endPoint.x - start.x);
+      const h = Math.abs(endPoint.y - start.y);
+      if (w < 0.01 || h < 0.01) { 
+        setDrawingState(null);
+        return;
+      }
+      const clipRect = {
+        x: Math.min(start.x, endPoint.x),
+        y: Math.min(start.y, endPoint.y),
+        width: w,
+        height: h,
+      };
+      setDrawingState(null);
+      // Trigger OCR extraction for this area
+      handleExtractClipFromArea(clipRect, pageNumber);
+      return;
+    }
+    
     if (!type || !['highlight', 'freehand'].includes(type)) {
       setDrawingState(null);
       return;
@@ -283,7 +333,7 @@ const DocumentWorkspacePage = () => {
     }
     if (annotation) updateAnnotations((prev) => [...prev, annotation]);
     setDrawingState(null);
-  }, [drawingState, updateAnnotations, activeColor]);
+  }, [drawingState, updateAnnotations, activeColor, handleExtractClipFromArea]);
 
   // ---------- BOOKMARK TOOL ----------
   const addBookmark = useCallback((event, pageNumber, overlayKey) => {
@@ -321,8 +371,8 @@ const DocumentWorkspacePage = () => {
       return;
     }
 
-    // drawing tools
-    if (['highlight', 'freehand'].includes(activeTool)) {
+    // drawing tools and clipping
+    if (['highlight', 'freehand', 'clip'].includes(activeTool)) {
       event.preventDefault();
       const p = getNormalizedPoint(event, overlay);
       setDrawingState({
@@ -386,7 +436,7 @@ const DocumentWorkspacePage = () => {
     const p = getNormalizedPoint(event, overlay);
     if (drawingState.type === 'freehand') {
       setDrawingState((prev) => ({ ...prev, points: [...prev.points, p], lastPoint: p }));
-    } else if (drawingState.type === 'highlight') {
+    } else if (drawingState.type === 'highlight' || drawingState.type === 'clip') {
       setDrawingState((prev) => ({ ...prev, lastPoint: p }));
     }
   }, [drawingState, updateAnnotations]);
@@ -439,7 +489,32 @@ const DocumentWorkspacePage = () => {
   const handleClipSelection = useCallback(() => {
     const sel = window.getSelection();
     const text = sel?.toString().trim();
-    if (!text) { window.alert('Select text to clip.'); return; }
+    
+    // If no text selected, try to use OCR results for the current page
+    if (!text) {
+      if (ocrResults[primaryPage] && ocrResults[primaryPage].text) {
+        const ocrText = ocrResults[primaryPage].text;
+        const confirmed = window.confirm(
+          `No text selected. Use OCR result for this page?\n\n` +
+          `(First ${Math.min(100, ocrText.length)} characters: ${ocrText.substring(0, 100)}...)`
+        );
+        if (confirmed) {
+          const newClip = {
+            id: createClippingId(),
+            content: ocrText,
+            createdAt: new Date().toISOString(),
+            sourcePage: primaryPage,
+            sourceRect: null,
+            source: 'OCR',
+          };
+          setClippings((prev) => [newClip, ...prev]);
+          setSelectedClippings([]);
+          return;
+        }
+      }
+      window.alert('Select text to clip, or use the Clip Area tool for scanned documents.');
+      return;
+    }
 
     // compute source rect normalized relative to overlay (if range exists)
     let sourceRect = null;
@@ -464,12 +539,13 @@ const DocumentWorkspacePage = () => {
       createdAt: new Date().toISOString(),
       sourcePage: primaryPage,
       sourceRect, // may be null if selection couldn't be measured
+      source: 'PDF',
     };
 
     setClippings((prev) => [newClip, ...prev]);
     setSelectedClippings([]);
     sel.removeAllRanges();
-  }, [primaryPage]);
+  }, [primaryPage, ocrResults]);
 
   const toggleClippingSelection = useCallback((id) => {
     setSelectedClippings((prev) => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -513,26 +589,75 @@ const DocumentWorkspacePage = () => {
     setSelectedClippings([]);
   }, [selectedClippings]);
 
-  // ---------- SEARCH ----------
+  const handleOcrCurrentPage = useCallback(() => {
+    runOcrOnPage(primaryPage);
+  }, [primaryPage, runOcrOnPage]);
+
+  const handleOcrAllPages = useCallback(async () => {
+    const processed = await runOcrOnAllPages();
+    if (processed > 0) {
+      window.alert(`OCR completed for all ${processed} pages.`);
+    }
+  }, [runOcrOnAllPages]);
+
+  // ---------- SEARCH (enhanced with OCR) ----------
   const handleSearch = useCallback(async () => {
     const term = searchTerm.trim();
     if (!term || !pdfProxyRef.current) { setSearchResults([]); return; }
     setIsSearching(true);
     const lower = term.toLowerCase();
     const results = [];
-    for (let i = 1; i <= pdfProxyRef.current.numPages; i++) {
-      const page = await pdfProxyRef.current.getPage(i);
-      const content = await page.getTextContent();
-      const text = content.items.map(x => x.str).join(' ');
+    const totalPages = pdfProxyRef.current.numPages || numPages;
+    if (!totalPages) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+    
+    for (let i = 1; i <= totalPages; i++) {
+      let text = '';
+      
+      // Try to get text from PDF text layer first
+      try {
+        // Load PDF using pdfjs directly
+        const loadingTask = pdfjs.getDocument(demoPdf);
+        const pdf = await loadingTask.promise;
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text = content.items.map(x => x.str).join(' ');
+      } catch (error) {
+        // If PDF text extraction fails, try OCR result
+        if (ocrResults[i]) {
+          text = ocrResults[i].text;
+        }
+      }
+
+      // If no text from PDF layer and we have OCR result, use OCR
+      if (!text && ocrResults[i]) {
+        text = ocrResults[i].text;
+      }
+
+      // If still no text and we need to search, trigger OCR for this page
+      if (!text) {
+        // Optionally trigger OCR automatically, but for now just skip
+        continue;
+      }
+
       const ltext = text.toLowerCase();
       if (ltext.includes(lower)) {
         const pos = ltext.indexOf(lower);
-        results.push({ id: `${i}-${pos}`, pageNumber: i, snippet: text.substring(Math.max(pos - 40, 0), pos + term.length + 40) });
+        results.push({ 
+          id: `${i}-${pos}`, 
+          pageNumber: i, 
+          snippet: text.substring(Math.max(pos - 40, 0), pos + term.length + 40),
+          source: ocrResults[i] ? 'OCR' : 'PDF'
+        });
       }
     }
+    
     setSearchResults(results);
     setIsSearching(false);
-  }, [searchTerm]);
+  }, [searchTerm, ocrResults, numPages]);
 
   const annotationDescriptions = useMemo(() => ({
     highlight: 'Highlight',
@@ -773,110 +898,64 @@ const DocumentWorkspacePage = () => {
     setSelectedClippings(prev => prev.filter(id => id !== clippingId));
   }, []);
 
+  const handleToolSelect = useCallback((toolId) => {
+    if (toolId === 'underline') {
+      applyLineAnnotation('underline');
+      return;
+    }
+    if (toolId === 'strike') {
+      applyLineAnnotation('strike');
+      return;
+    }
+    if (toolId === 'textHighlight') {
+      applyLineAnnotation('textHighlight');
+      return;
+    }
+    if (toolId === 'comment') {
+      applyLineAnnotation('comment');
+      return;
+    }
+    setActiveTool(toolId);
+  }, [applyLineAnnotation]);
+
   // ---------- rendering ----------
   return (
     <div className={styles.workspace}>
-      {/* LEFT PANEL - Clippings */}
-      <aside className={styles.leftPanel}>
-        <div className={styles.panelHeader}>Clippings & Excerpts</div>
-        <div className={styles.panelContent}>
-          <div className={styles.toolbarGroup}>
-            <button type="button" className={styles.primaryActionButton} onClick={handleClipSelection}>Create clipping</button>
-            <button type="button" className={styles.secondaryActionButton} onClick={handleCombineClippings} disabled={selectedClippings.length < 2}>Combine</button>
-          </div>
-
-          {clippings.length === 0 ? (
-            <div className={styles.emptyState}>Select text → "Create clipping"</div>
-          ) : (
-            clippings.map((c) => (
-              <label
-                key={c.id}
-                className={`${styles.clippingCard} ${selectedClippings.includes(c.id) ? styles.clippingCardSelected : ''}`}
-                draggable
-                onDragStart={(e) => handleClippingDragStart(e, c.id)}
-              >
-                <input type="checkbox" checked={selectedClippings.includes(c.id)} onChange={() => toggleClippingSelection(c.id)} />
-                <small>
-                  Pages:{' '}
-                  {c.segments
-                    ? Array.from(new Set(c.segments.map(seg => getPrimaryPageFromSource(seg.sourcePage)))).join(', ')
-                    : c.sourcePage}
-                </small>
-                {c.segments ? (
-                  <div className={styles.combinedClipPreview}>
-                    {c.segments.map(seg => (
-                      <p key={seg.id} className={styles.combinedClipSegment}>
-                        <strong>{seg.label}:</strong> {seg.content}
-                      </p>
-                    ))}
-                  </div>
-                ) : (
-                  <p style={{ whiteSpace: 'pre-wrap', maxHeight: 96, overflow: 'auto' }}>{c.content}</p>
-                )}
-                <div className={styles.clippingActions}>
-                  <button type="button" className={styles.linkButton} onClick={() => setPrimaryPage(getPrimaryPageFromSource(c.sourcePage))}>Jump</button>
-                  <button type="button" className={styles.linkButton} onClick={() => handleReorderClipping(c.id, -1)}>Up</button>
-                  <button type="button" className={styles.linkButton} onClick={() => handleReorderClipping(c.id, 1)}>Down</button>
-                  <button type="button" className={styles.linkButton} onClick={() => handleRemoveClipping(c.id)}>Remove</button>
-                </div>
-              </label>
-            ))
-          )}
-        </div>
-      </aside>
+      <ClippingsPanel
+        clippings={clippings}
+        selectedClippings={selectedClippings}
+        onCreateClipping={handleClipSelection}
+        onCombineClippings={handleCombineClippings}
+        onToggleClippingSelection={toggleClippingSelection}
+        onClippingDragStart={handleClippingDragStart}
+        onReorderClipping={handleReorderClipping}
+        onRemoveClipping={handleRemoveClipping}
+        onJumpToPage={setPrimaryPage}
+        getPrimaryPageFromSource={getPrimaryPageFromSource}
+      />
 
       {/* MAIN VIEWER AREA - Document on left, Workspace on right */}
       <main className={styles.viewerArea}>
-        <div className={styles.floatingToolbarContainer}>
-          <div className={styles.floatingToolbar}>
-            <div className={styles.toolbarIconGroup}>
-              {TOOL_TYPES.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={`${styles.toolIconButton} ${activeTool === id ? styles.toolIconButtonActive : ''}`}
-                  onClick={() => {
-                    if (id === 'underline') applyLineAnnotation('underline');
-                    else if (id === 'strike') applyLineAnnotation('strike');
-                    else if (id === 'textHighlight') applyLineAnnotation('textHighlight');
-                    else if (id === 'comment') applyLineAnnotation('comment');
-                    else setActiveTool(id);
-                  }}
-                  title={label}
-                >
-                  <Icon size={18} />
-                </button>
-              ))}
-            </div>
-
-            <div className={styles.toolbarDivider} />
-
-            <div className={styles.toolbarIconGroup}>
-              <div className={styles.toolbarSubGroup}>
-                <button type="button" className={styles.toolIconButton} onClick={() => handleManualZoom('out')} title="Zoom out">
-                  <MdZoomOut size={18} />
-                </button>
-                <span className={styles.zoomValue}>{Math.round(primaryScale * 100)}%</span>
-                <button type="button" className={styles.toolIconButton} onClick={() => handleManualZoom('in')} title="Zoom in">
-                  <MdZoomIn size={18} />
-                </button>
-              </div>
-              <div className={styles.toolbarSubGroup}>
-                <div className={styles.colorSwatches}>
-                  {COLOR_OPTIONS.map((c) => (
-                    <button key={c} type="button" className={`${styles.colorDot} ${activeColor === c ? styles.colorDotActive : ''}`} style={{ backgroundColor: c }} onClick={() => setActiveColor(c)} />
-                  ))}
-                </div>
-              </div>
-              <div className={styles.toolbarSubGroup}>
-                <input className={styles.toolbarSearchInput} type="search" placeholder="Search text…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} />
-                <button type="button" className={styles.toolIconButton} onClick={handleSearch} title="Search document">
-                  <MdSearch size={18} />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <FloatingToolbar
+          toolTypes={TOOL_TYPES}
+          activeTool={activeTool}
+          onToolClick={handleToolSelect}
+          onManualZoom={handleManualZoom}
+          primaryScale={primaryScale}
+          colorOptions={COLOR_OPTIONS}
+          activeColor={activeColor}
+          onColorSelect={setActiveColor}
+          searchTerm={searchTerm}
+          onSearchTermChange={setSearchTerm}
+          onSearch={handleSearch}
+          handleOcrCurrentPage={handleOcrCurrentPage}
+          handleOcrAllPages={handleOcrAllPages}
+          isOcrRunning={isOcrRunning}
+          ocrProgress={ocrProgress}
+          ocrResults={ocrResults}
+          primaryPage={primaryPage}
+          numPages={numPages || 0}
+        />
 
         <div className={styles.viewerDeck} ref={viewerDeckRef}>
           {/* Connector SVG - positioned absolutely to span both panes */}
@@ -912,7 +991,7 @@ const DocumentWorkspacePage = () => {
                       ref={(n) => { overlayRefs.current.primary = n; }}
                       className={styles.annotationOverlay}
                       data-overlay
-                      data-drawing-tool={['highlight', 'freehand', 'bookmark'].includes(activeTool) ? 'true' : undefined}
+                      data-drawing-tool={['highlight', 'freehand', 'bookmark', 'clip'].includes(activeTool) ? 'true' : undefined}
                       onPointerDown={(e) => handlePointerDown(e, primaryPage, 'primary')}
                       onPointerMove={(e) => handlePointerMove(e, 'primary')}
                       onPointerUp={(e) => handlePointerUp(e, 'primary')}
@@ -954,6 +1033,18 @@ const DocumentWorkspacePage = () => {
                           width={`${Math.abs((drawingState.lastPoint?.x || drawingState.start.x) - drawingState.start.x) * 100}%`}
                           height={`${Math.abs((drawingState.lastPoint?.y || drawingState.start.y) - drawingState.start.y) * 100}%`}
                           fill={activeColor}
+                        />
+                      )}
+                      {drawingState?.type === 'clip' && drawingState.start && (
+                        <rect className={styles.highlightRect}
+                          x={`${Math.min(drawingState.lastPoint?.x || drawingState.start.x, drawingState.start.x) * 100}%`}
+                          y={`${Math.min(drawingState.lastPoint?.y || drawingState.start.y, drawingState.start.y) * 100}%`}
+                          width={`${Math.abs((drawingState.lastPoint?.x || drawingState.start.x) - drawingState.start.x) * 100}%`}
+                          height={`${Math.abs((drawingState.lastPoint?.y || drawingState.start.y) - drawingState.start.y) * 100}%`}
+                          fill="rgba(59, 130, 246, 0.2)"
+                          stroke="rgba(59, 130, 246, 0.8)"
+                          strokeWidth="2"
+                          strokeDasharray="5,5"
                         />
                       )}
                     </svg>
@@ -1073,22 +1164,11 @@ const DocumentWorkspacePage = () => {
           </div>
         </div>
 
-        {/* search panel */}
-        <div className={styles.searchPanel}>
-          <div className={styles.searchPanelHeader}>Search results</div>
-          <div className={styles.searchPanelBody}>
-            {isSearching ? <div className={styles.emptyState}>Searching…</div> :
-              searchResults.length === 0 ? <div className={styles.emptyState}>Enter a term.</div> :
-              <div className={styles.searchResults}>
-                {searchResults.map(r => (
-                  <button key={r.id} type="button" className={styles.searchResultItem} onClick={() => setPrimaryPage(r.pageNumber)}>
-                    Page {r.pageNumber}<br />…{r.snippet}…
-                  </button>
-                ))}
-              </div>
-            }
-          </div>
-        </div>
+        <SearchPanel
+          isSearching={isSearching}
+          results={searchResults}
+          onSelectResult={setPrimaryPage}
+        />
       </main>
 
       {/* RIGHT PANEL - Annotations + Bookmarks */}
