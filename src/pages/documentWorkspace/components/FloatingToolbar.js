@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   MdZoomIn,
   MdZoomOut,
@@ -6,6 +6,7 @@ import {
   MdTextFields,
 } from 'react-icons/md';
 import styles from '../documentWorkspace.module.css';
+import FreehandPalette from './FreehandPalette';
 
 const FloatingToolbar = ({
   toolTypes,
@@ -16,6 +17,20 @@ const FloatingToolbar = ({
   colorOptions,
   activeColor,
   onColorSelect,
+  brushSizeOptions = [],
+  activeBrushSize,
+  onBrushSizeSelect,
+  freehandColorOptions = colorOptions,
+  freehandMode = 'freehand',
+  onFreehandModeChange,
+  isPressureEnabled = true,
+  onTogglePressure,
+  isFreehandPaletteVisible = false,
+  onFreehandPaletteDismiss,
+  activeBrushOpacity = 1,
+  onBrushOpacityChange,
+  isFreehandCommentMode = false,
+  onToggleFreehandCommentMode,
   searchTerm,
   onSearchTermChange,
   onSearch,
@@ -50,94 +65,131 @@ const FloatingToolbar = ({
     background: '#22c55e',
   };
 
+  const paletteRef = useRef(null);
+  const freehandButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (!isFreehandPaletteVisible) return;
+    const handlePointerDown = (event) => {
+      if (paletteRef.current?.contains(event.target)) return;
+      if (freehandButtonRef.current?.contains(event.target)) return;
+      onFreehandPaletteDismiss?.();
+    };
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [isFreehandPaletteVisible, onFreehandPaletteDismiss]);
+
   return (
     <div className={styles.floatingToolbarContainer}>
-      <div className={styles.floatingToolbar}>
-        <div className={styles.toolbarIconGroup}>
-          {toolTypes.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              className={`${styles.toolIconButton} ${activeTool === id ? styles.toolIconButtonActive : ''}`}
-              onClick={() => onToolClick(id)}
-              title={label}
-            >
-              <Icon size={18} />
-            </button>
-          ))}
-        </div>
-
-        <div className={styles.toolbarDivider} />
-
-        <div className={styles.toolbarIconGroup}>
-          <div className={styles.toolbarSubGroup}>
-            <button type="button" className={styles.toolIconButton} onClick={() => onManualZoom('out')} title="Zoom out">
-              <MdZoomOut size={18} />
-            </button>
-            <span className={styles.zoomValue}>{Math.round(primaryScale * 100)}%</span>
-            <button type="button" className={styles.toolIconButton} onClick={() => onManualZoom('in')} title="Zoom in">
-              <MdZoomIn size={18} />
-            </button>
+      <div className={styles.floatingToolbarStack}>
+        <div className={styles.floatingToolbar}>
+          <div className={styles.toolbarIconGroup}>
+            {toolTypes.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                className={`${styles.toolIconButton} ${activeTool === id ? styles.toolIconButtonActive : ''}`}
+                onClick={() => onToolClick(id)}
+                title={label}
+                ref={id === 'freehand' ? freehandButtonRef : undefined}
+              >
+                <Icon size={18} />
+              </button>
+            ))}
           </div>
-          <div className={styles.toolbarSubGroup}>
-            <div className={styles.colorSwatches}>
-              {colorOptions.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  className={`${styles.colorDot} ${activeColor === color ? styles.colorDotActive : ''}`}
-                  style={{ backgroundColor: color }}
-                  onClick={() => onColorSelect(color)}
-                />
-              ))}
+
+          <div className={styles.toolbarDivider} />
+
+          <div className={styles.toolbarIconGroup}>
+            <div className={styles.toolbarSubGroup}>
+              <button type="button" className={styles.toolIconButton} onClick={() => onManualZoom('out')} title="Zoom out">
+                <MdZoomOut size={18} />
+              </button>
+              <span className={styles.zoomValue}>{Math.round(primaryScale * 100)}%</span>
+              <button type="button" className={styles.toolIconButton} onClick={() => onManualZoom('in')} title="Zoom in">
+                <MdZoomIn size={18} />
+              </button>
             </div>
-          </div>
-          <div className={styles.toolbarSubGroup}>
-            <input
-              className={styles.toolbarSearchInput}
-              type="search"
-              placeholder="Search text…"
-              value={searchTerm}
-              onChange={(e) => onSearchTermChange(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && onSearch()}
-            />
-            <button type="button" className={styles.toolIconButton} onClick={onSearch} title="Search document">
-              <MdSearch size={18} />
-            </button>
-          </div>
-          <div className={styles.toolbarSubGroup}>
-            <button
-              type="button"
-              className={styles.toolIconButton}
-              onClick={handleOcrCurrentPage}
-              disabled={isOcrRunning}
-              title={hasOcr ? `Re-run OCR on page ${primaryPage}` : `Run OCR on page ${primaryPage}`}
-              style={{ position: 'relative' }}
-            >
-              <MdTextFields size={18} />
-              {ocrBadge && ocrBadge.progress > 0 && ocrBadge.progress < 100 && (
-                <span style={progressBadgeStyle}>
-                  {ocrBadge.progress}%
-                </span>
-              )}
-              {hasOcr && !ocrBadge && (
-                <span style={successBadgeStyle}>✓</span>
-              )}
-            </button>
-            {numPages > 1 && (
+            <div className={styles.toolbarSubGroup}>
+              <div className={styles.colorSwatches}>
+                {colorOptions.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    className={`${styles.colorDot} ${activeColor === color ? styles.colorDotActive : ''}`}
+                    style={{ backgroundColor: color }}
+                    onClick={() => onColorSelect(color)}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className={styles.toolbarSubGroup}>
+              <input
+                className={styles.toolbarSearchInput}
+                type="search"
+                placeholder="Search text…"
+                value={searchTerm}
+                onChange={(e) => onSearchTermChange(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && onSearch()}
+              />
+              <button type="button" className={styles.toolIconButton} onClick={onSearch} title="Search document">
+                <MdSearch size={18} />
+              </button>
+            </div>
+            <div className={styles.toolbarSubGroup}>
               <button
                 type="button"
                 className={styles.toolIconButton}
-                onClick={handleOcrAllPages}
+                onClick={handleOcrCurrentPage}
                 disabled={isOcrRunning}
-                title={`Run OCR on all ${numPages} pages`}
+                title={hasOcr ? `Re-run OCR on page ${primaryPage}` : `Run OCR on page ${primaryPage}`}
+                style={{ position: 'relative' }}
               >
                 <MdTextFields size={18} />
-                <span style={{ fontSize: 10, marginLeft: 2 }}>All</span>
+                {ocrBadge && ocrBadge.progress > 0 && ocrBadge.progress < 100 && (
+                  <span style={progressBadgeStyle}>
+                    {ocrBadge.progress}%
+                  </span>
+                )}
+                {hasOcr && !ocrBadge && (
+                  <span style={successBadgeStyle}>✓</span>
+                )}
               </button>
-            )}
+              {numPages > 1 && (
+                <button
+                  type="button"
+                  className={styles.toolIconButton}
+                  onClick={handleOcrAllPages}
+                  disabled={isOcrRunning}
+                  title={`Run OCR on all ${numPages} pages`}
+                >
+                  <MdTextFields size={18} />
+                  <span style={{ fontSize: 10, marginLeft: 2 }}>All</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
+
+        {isFreehandPaletteVisible && (
+          <FreehandPalette
+            ref={paletteRef}
+            freehandMode={freehandMode}
+            onFreehandModeChange={onFreehandModeChange}
+            freehandColorOptions={freehandColorOptions}
+            activeColor={activeColor}
+            onColorSelect={onColorSelect}
+            brushSizeOptions={brushSizeOptions}
+            activeBrushSize={activeBrushSize}
+            onBrushSizeSelect={onBrushSizeSelect}
+            activeBrushOpacity={activeBrushOpacity}
+            onBrushOpacityChange={onBrushOpacityChange}
+            isPressureEnabled={isPressureEnabled}
+            onTogglePressure={onTogglePressure}
+            isFreehandCommentMode={isFreehandCommentMode}
+            onToggleFreehandCommentMode={onToggleFreehandCommentMode}
+          />
+        )}
       </div>
     </div>
   );

@@ -11,6 +11,34 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
 }
 
+.selectionCommentMenu {
+  position: fixed;
+  z-index: 1600;
+  transform: translate(-50%, -110%);
+  background: rgba(15, 23, 42, 0.95);
+  border-radius: 999px;
+  padding: 6px 14px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
+  pointer-events: all;
+  display: flex;
+  align-items: center;
+}
+
+.selectionCommentMenu button {
+  background: transparent;
+  border: none;
+  color: #fef3c7;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.selectionCommentMenu button:hover {
+  color: #fde047;
+}
+
 /* ============================================================
    SIDEBAR PANELS
    ============================================================ */
@@ -77,6 +105,14 @@
   justify-content: center;
   pointer-events: none;
   z-index: 20;
+}
+
+.floatingToolbarStack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: auto;
+  gap: 12px;
 }
 
 .floatingToolbar {
@@ -246,6 +282,247 @@
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3), 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
+.freehandPalette {
+  width: 360px;
+  border-radius: 24px;
+  padding: 20px 22px 18px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 25px 55px rgba(15, 23, 42, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  backdrop-filter: blur(18px);
+  position: relative;
+}
+
+.freehandPalette::before {
+  content: '';
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translateX(-50%) rotate(45deg);
+  background: rgba(255, 255, 255, 0.98);
+  border-left: 1px solid rgba(99, 102, 241, 0.15);
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.freehandModeToggle {
+  display: inline-flex;
+  background: rgba(99, 102, 241, 0.08);
+  padding: 4px;
+  border-radius: 999px;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.modeButton {
+  border: none;
+  background: transparent;
+  color: #6d28d9;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.modeButtonActive {
+  background: #ffffff;
+  box-shadow: 0 10px 25px rgba(99, 102, 241, 0.25);
+}
+
+.modeIcon {
+  width: 20px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.4), rgba(99, 102, 241, 0.8));
+}
+
+.modeButton:last-child .modeIcon {
+  height: 10px;
+  border-radius: 20px;
+  background: linear-gradient(90deg, rgba(236, 72, 153, 0.5), rgba(99, 102, 241, 0.8));
+}
+
+.paletteSection {
+  margin-bottom: 14px;
+}
+
+.panelLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.65px;
+  color: #4c1d95;
+  margin-bottom: 8px;
+}
+
+.freehandColorGrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+
+.paletteColorDot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.paletteColorDot:hover {
+  transform: translateY(-1px) scale(1.05);
+}
+
+.paletteColorDotActive {
+  border-color: #1d4ed8;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
+}
+
+.brushSizePicker {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.brushSizeChip {
+  width: 44px;
+  height: 52px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(255, 255, 255, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(148, 163, 184, 0.35);
+  transition: all 0.2s ease;
+}
+
+.brushSizeChip:hover {
+  transform: translateY(-2px);
+}
+
+.brushSizeChipActive {
+  border-color: transparent;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  box-shadow: 0 14px 24px rgba(99, 102, 241, 0.35);
+}
+
+.brushSizeIndicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, #fafafa, #1e1b4b);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.35), 0 2px 6px rgba(30, 27, 75, 0.4);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.brushSizeChipActive .brushSizeIndicator {
+  background: white;
+  transform: scale(1.15);
+}
+
+.commentModeButton {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(99, 102, 241, 0.45);
+  background: rgba(255, 255, 255, 0.92);
+  color: #4c1d95;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.commentModeButton:hover {
+  border-color: rgba(99, 102, 241, 0.8);
+  background: rgba(238, 242, 255, 0.9);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.15);
+}
+
+.commentModeButtonActive {
+  border-style: solid;
+  border-color: transparent;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #f0fdf4;
+  box-shadow: 0 8px 20px rgba(34, 197, 94, 0.3);
+}
+
+.opacityControl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.opacityControl input[type="range"] {
+  flex: 1;
+  accent-color: #6366f1;
+}
+
+.opacityValue {
+  font-weight: 600;
+  font-size: 12px;
+  min-width: 42px;
+  text-align: right;
+  color: #312e81;
+}
+
+.pressureToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pressureToggle small {
+  display: block;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.pressureSwitch {
+  width: 60px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  background: rgba(229, 231, 235, 0.8);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.pressureSwitchOn {
+  background: linear-gradient(135deg, #34d399, #22c55e);
+  border-color: transparent;
+}
+
+.pressureSwitchKnob {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease;
+}
+
+.pressureSwitchOn .pressureSwitchKnob {
+  transform: translateX(28px);
+}
+
 /* ============================================================
    VIEWER DECK - Split Layout
    ============================================================ */
@@ -269,19 +546,15 @@
 }
 
 .workspacePane {
-  width: 400px;
+  flex: 0 0 auto;
+  width: auto;
   min-width: 320px;
-  max-width: 45%;
+  max-width: 65%;
   display: flex;
   flex-direction: column;
   background: #ffffff;
   border-left: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow: -2px 0 12px rgba(0, 0, 0, 0.06);
-}
-
-.workspacePaneExpanded {
-  width: 520px;
-  max-width: 55%;
 }
 
 .viewerZoomWrapper {
@@ -357,7 +630,7 @@
 
 .freehandPath {
   fill: none;
-  stroke-width: 2.5;
+  stroke-width: var(--freehand-stroke-width, 2.5);
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -480,6 +753,49 @@
   line-height: 1.5;
 }
 
+.workspaceResizer {
+  flex: 0 0 auto;
+  width: 18px;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 15;
+  touch-action: none;
+}
+
+.workspaceResizer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.08), rgba(99, 102, 241, 0.02));
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.workspaceResizer:hover::before,
+.workspaceResizerActive::before {
+  opacity: 1;
+}
+
+.workspaceResizerActive {
+  cursor: col-resize;
+}
+
+.workspaceResizerHandle {
+  width: 4px;
+  height: 64px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #c7d2fe, #818cf8);
+  box-shadow: 0 0 10px rgba(79, 70, 229, 0.2);
+}
+
+.workspaceResizerActive .workspaceResizerHandle {
+  background: linear-gradient(180deg, #6366f1, #4c1d95);
+  box-shadow: 0 0 14px rgba(76, 29, 149, 0.35);
+}
+
 .workspaceCanvas {
   flex: 1;
   position: relative;
@@ -599,6 +915,39 @@
   gap: 8px;
   padding-top: 8px;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.workspaceCommentCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.workspaceCommentHeader {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.35px;
+  color: #0f172a;
+  text-transform: uppercase;
+}
+
+.workspaceCommentQuote {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 3px solid rgba(59, 130, 246, 0.4);
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.4;
+  font-style: italic;
+}
+
+.workspaceCommentBody {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #0f172a;
 }
 
 /* ============================================================

@@ -20,7 +20,7 @@ import {
   MdChevronRight,
   MdContentCut,
 } from 'react-icons/md';
-import demoPdf from '../../assets/demmo.pdf';
+import demoPdf from '../../assets/demo.pdf';
 import styles from './documentWorkspace.module.css';
 import useOcr from './hooks/useOcr';
 import FloatingToolbar from './components/FloatingToolbar';
@@ -44,8 +44,41 @@ const TOOL_TYPES = [
 
 const ANNOTATION_TYPES = ['highlight', 'underline', 'strike', 'freehand', 'comment'];
 const COLOR_OPTIONS = ['#fbbf24', '#f97316', '#a855f7', '#22c55e', '#3b82f6', '#ef4444'];
+const FREEHAND_COLORS = [
+  '#1d4ed8', '#dc2626', '#22c55e', '#facc15', '#111827',
+  '#0ea5e9', '#4ade80', '#9ca3af', '#000000', '#a1a1aa',
+  '#fde047', '#7f1d1d', '#475569', '#a855f7', '#f472b6',
+  '#6366f1', '#fb7185', '#f97316', '#14b8a6', '#f0abfc',
+];
 const BOOKMARK_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
 const DEFAULT_BOOKMARK_COLOR = BOOKMARK_COLORS[0];
+const BRUSH_SIZES = [
+  { id: 'hairline', label: 'Hairline', value: 5.2, preview: 4 },
+  { id: 'fine', label: 'Fine', value: 5.8, preview: 6 },
+  { id: 'medium', label: 'Medium', value: 25.6, preview: 8 },
+  { id: 'bold', label: 'Bold', value: 35.6, preview: 12 },
+  { id: 'marker', label: 'Marker', value: 45.8, preview: 18 },
+];
+const DEFAULT_BRUSH_SIZE = BRUSH_SIZES[2].value;
+const DEFAULT_BRUSH_OPACITY = 1;
+const DEFAULT_WORKSPACE_WIDTH = 0.38;
+const WORKSPACE_MIN_WIDTH = 0.22;
+const WORKSPACE_MAX_WIDTH = 0.62;
+const createWorkspaceItemId = () => `ws-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+const getWorkspaceItemType = (item) => item?.type || 'clip';
+const getWorkspaceItemSourceId = (item) => item?.sourceId || item?.clippingId;
+const getBoundingRectFromPoints = (points = []) => {
+  if (!points.length) return null;
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const width = Math.max(maxX - minX, 0.005);
+  const height = Math.max(maxY - minY, 0.005);
+  return { x: clamp(minX, 0, 1 - width), y: clamp(minY, 0, 1 - height), width, height };
+};
 
 // ---------- utils ----------
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
@@ -74,6 +107,13 @@ const getNormalizedPoint = (event, element) => {
   return { x, y };
 };
 
+const getPointerPressure = (event, enabled) => {
+  if (!enabled) return 1;
+  if (!event || typeof event.pressure !== 'number') return 1;
+  const raw = event.pressure > 0 ? event.pressure : 1;
+  return clamp(raw, 0.25, 1.35);
+};
+
 // ---------- component ----------
 const DocumentWorkspacePage = () => {
   // Core PDF state
@@ -88,6 +128,15 @@ const DocumentWorkspacePage = () => {
   const [activeTool, setActiveTool] = useState('select');
   const [activeColor, setActiveColor] = useState(COLOR_OPTIONS[0]);
   const [activeBookmarkColor, setActiveBookmarkColor] = useState(DEFAULT_BOOKMARK_COLOR);
+  const [activeBrushSize, setActiveBrushSize] = useState(DEFAULT_BRUSH_SIZE);
+  const [activeBrushOpacity, setActiveBrushOpacity] = useState(DEFAULT_BRUSH_OPACITY);
+  const [freehandMode, setFreehandMode] = useState('straight');
+  const [isPressureEnabled, setIsPressureEnabled] = useState(true);
+  const [isFreehandPaletteOpen, setIsFreehandPaletteOpen] = useState(false);
+  const [isFreehandCommentMode, setIsFreehandCommentMode] = useState(false);
+  const [workspaceWidth, setWorkspaceWidth] = useState(DEFAULT_WORKSPACE_WIDTH);
+  const [isWorkspaceResizing, setIsWorkspaceResizing] = useState(false);
+  const [selectionMenu, setSelectionMenu] = useState(null);
 
   // drawing / clippings / search
   const [drawingState, setDrawingState] = useState(null);
@@ -98,8 +147,9 @@ const DocumentWorkspacePage = () => {
   const [isSearching, setIsSearching] = useState(false);
 
   // workspace items for LiquidText-like canvas
-  // each: { id, clippingId, x, y } where x,y are normalized relative to viewerCanvas (0..1)
+  // each: { id, type: 'clip' | 'comment', sourceId, x, y }
   const [workspaceItems, setWorkspaceItems] = useState([]);
+  const [workspaceComments, setWorkspaceComments] = useState([]);
   const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
 
   // refs
@@ -108,6 +158,7 @@ const DocumentWorkspacePage = () => {
   const viewerCanvasRef = useRef(null);
   const viewerZoomWrapperRef = useRef(null);
   const viewerDeckRef = useRef(null);
+  const workspaceResizeMetaRef = useRef({ startX: 0, startWidth: DEFAULT_WORKSPACE_WIDTH, deckWidth: 1 });
 
   const {
     ocrResults,
@@ -147,12 +198,68 @@ const DocumentWorkspacePage = () => {
   const draggingWorkspaceItemId = useRef(null);
   const draggingWorkspaceMetaRef = useRef({ offsetX: 0, offsetY: 0 });
 
+  const dismissFreehandPalette = useCallback(() => {
+    setIsFreehandPaletteOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (activeTool !== 'freehand') {
+      dismissFreehandPalette();
+    }
+  }, [activeTool, dismissFreehandPalette]);
+
+  useEffect(() => {
+    if (!isWorkspaceResizing) return;
+    const handleMove = (event) => {
+      const { startX, startWidth, deckWidth } = workspaceResizeMetaRef.current;
+      const delta = (event.clientX - startX) / (deckWidth || 1);
+      const nextWidth = clamp(startWidth - delta, WORKSPACE_MIN_WIDTH, WORKSPACE_MAX_WIDTH);
+      setWorkspaceWidth(nextWidth);
+    };
+    const stopResizing = () => {
+      setIsWorkspaceResizing(false);
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', stopResizing);
+    window.addEventListener('pointercancel', stopResizing);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', stopResizing);
+      window.removeEventListener('pointercancel', stopResizing);
+    };
+  }, [isWorkspaceResizing]);
+
+  useEffect(() => {
+    setDrawingState((prev) => {
+      if (!prev || prev.type !== 'freehand') return prev;
+      if (prev.brushSize === activeBrushSize) return prev;
+      return { ...prev, brushSize: activeBrushSize };
+    });
+  }, [activeBrushSize]);
+
+  useEffect(() => {
+    setDrawingState((prev) => {
+      if (!prev || prev.type !== 'freehand') return prev;
+      if (prev.opacity === activeBrushOpacity) return prev;
+      return { ...prev, opacity: activeBrushOpacity };
+    });
+  }, [activeBrushOpacity]);
+
+  useEffect(() => {
+    setDrawingState((prev) => {
+      if (!prev || prev.type !== 'freehand') return prev;
+      if (prev.pressureEnabled === isPressureEnabled) return prev;
+      return { ...prev, pressureEnabled: isPressureEnabled };
+    });
+  }, [isPressureEnabled]);
+
   // ---------- selection capture ----------
   useEffect(() => {
     const captureSelection = () => {
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.getRangeAt(0).collapsed) {
         currentSelectionRef.current = { text: '', range: null };
+        setSelectionMenu(null);
         return;
       }
       const range = sel.getRangeAt(0);
@@ -160,6 +267,16 @@ const DocumentWorkspacePage = () => {
         text: sel.toString().trim(),
         range: range.cloneRange(),
       };
+      const rect = range.getBoundingClientRect();
+      if (!rect || rect.width < 2 || rect.height < 2) {
+        setSelectionMenu(null);
+        return;
+      }
+      setSelectionMenu({
+        x: rect.left + rect.width / 2,
+        y: Math.max(rect.top - 40, 12),
+        quote: sel.toString().trim(),
+      });
     };
     document.addEventListener('selectionchange', captureSelection);
     document.addEventListener('mousedown', captureSelection);
@@ -187,9 +304,111 @@ const DocumentWorkspacePage = () => {
     [annotations, annotationFilters]
   );
 
+  const liveFreehandStrokeWidth =
+    drawingState?.type === 'freehand'
+      ? (drawingState.brushSize || activeBrushSize || DEFAULT_BRUSH_SIZE) *
+        (drawingState.pressureEnabled ? (drawingState.pressure || 1) : 1)
+      : null;
+
+  const liveFreehandOpacity =
+    drawingState?.type === 'freehand'
+      ? (typeof drawingState.opacity === 'number' ? drawingState.opacity : activeBrushOpacity || DEFAULT_BRUSH_OPACITY)
+      : null;
+
+  const workspaceWidthPercent = workspaceWidth * 100;
+  const documentWidthPercent = 100 - workspaceWidthPercent;
+  const workspaceAriaValue = Math.round(workspaceWidthPercent);
   const updateAnnotations = useCallback((updater) => {
     setAnnotations((prev) => updater(prev).sort((a, b) => a.pageNumber - b.pageNumber));
   }, []);
+
+  const handleCreateWorkspaceComment = useCallback(
+    ({ sourceRect, pageNumber, sourceType = 'text', quoteText = '', createAnnotation = false }) => {
+      if (!sourceRect) {
+        window.alert('Unable to locate the selected content for this comment.');
+        return false;
+      }
+      const body = window.prompt('Add comment', quoteText ? `Selection: "${quoteText.substring(0, 80)}"...` : '');
+      if (!body || !body.trim()) {
+        return false;
+      }
+      const content = body.trim();
+      const createdAt = new Date().toISOString();
+      const newComment = {
+        id: `comment-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+        content,
+        quoteText,
+        pageNumber,
+        sourceRect,
+        sourceType,
+        color: activeColor,
+        createdAt,
+      };
+      setWorkspaceComments((prev) => [newComment, ...prev]);
+      setWorkspaceItems((prev) => {
+        const commentCount = prev.filter((it) => getWorkspaceItemType(it) === 'comment').length;
+        const baseY = 0.18 + ((commentCount * 0.14) % 0.6);
+        const item = {
+          id: createWorkspaceItemId(),
+          type: 'comment',
+          sourceId: newComment.id,
+          x: clamp(0.72 + Math.random() * 0.08, 0.05, 0.95),
+          y: clamp(baseY, 0.05, 0.92),
+          createdAt,
+        };
+        return [item, ...prev];
+      });
+      if (createAnnotation) {
+        const annotationId = createAnnotationId();
+        const position = {
+          x: clamp(sourceRect.x + (sourceRect.width || 0) / 2, 0.05, 0.95),
+          y: clamp(sourceRect.y + (sourceRect.height || 0) / 2, 0.05, 0.95),
+        };
+        updateAnnotations((prev) => [
+          ...prev,
+          {
+            id: annotationId,
+            type: 'comment',
+            pageNumber,
+            color: activeColor,
+            createdAt,
+            content,
+            linkedText: quoteText || null,
+            position,
+          },
+        ]);
+      }
+      return true;
+    },
+    [activeColor, setWorkspaceComments, setWorkspaceItems, updateAnnotations],
+  );
+
+  const handleCreateCommentFromSelection = useCallback(() => {
+    const stored = currentSelectionRef.current;
+    const overlay = overlayRefs.current.primary;
+    if (!stored?.range || !stored.text || !overlay) return;
+    const rangeRect = stored.range.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    if (!rangeRect || !overlayRect.width || !overlayRect.height) return;
+    const sourceRect = {
+      x: clamp((rangeRect.left - overlayRect.left) / overlayRect.width, 0, 0.98),
+      y: clamp((rangeRect.top - overlayRect.top) / overlayRect.height, 0, 0.98),
+      width: clamp(rangeRect.width / overlayRect.width, 0.02, 1),
+      height: clamp(rangeRect.height / overlayRect.height, 0.02, 1),
+    };
+    const created = handleCreateWorkspaceComment({
+      sourceRect,
+      pageNumber: primaryPage,
+      sourceType: 'text',
+      quoteText: stored.text,
+    });
+    if (created) {
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      currentSelectionRef.current = { text: '', range: null };
+      setSelectionMenu(null);
+    }
+  }, [handleCreateWorkspaceComment, primaryPage]);
 
   // ---------- apply text annotations (unchanged) ----------
   const applyLineAnnotation = useCallback((type) => {
@@ -293,7 +512,7 @@ const DocumentWorkspacePage = () => {
   // ---------- drawing finalize ----------
   const finalizeDrawing = useCallback((endPoint, overlayKey) => {
     if (!drawingState) return;
-    const { type, start, points, pageNumber } = drawingState;
+    const { type, start, points, pageNumber, brushSize, pressure, mode, pressureEnabled, opacity } = drawingState;
     
     // Handle clipping area selection
     if (type === 'clip') {
@@ -327,13 +546,43 @@ const DocumentWorkspacePage = () => {
       if (w < 0.01 || h < 0.01) { setDrawingState(null); return; }
       annotation = { ...base, subtype: 'area', position: { x: Math.min(start.x, endPoint.x), y: Math.min(start.y, endPoint.y), width: w, height: h } };
     } else if (type === 'freehand') {
-      const merged = [...points, endPoint];
-      if (merged.length < 3) { setDrawingState(null); return; }
-      annotation = { ...base, points: merged };
+      let merged;
+      if (mode === 'straight') {
+        const anchor = points[0] || start;
+        merged = anchor ? [anchor, endPoint] : [start, endPoint];
+      } else {
+        merged = [...points, endPoint];
+      }
+      if (merged.length < 2) { setDrawingState(null); return; }
+      const baseSize = brushSize || activeBrushSize || DEFAULT_BRUSH_SIZE;
+      const pressureFactor = pressureEnabled ? (pressure || 1) : 1;
+      const strokeWidth = baseSize * pressureFactor;
+      const strokeOpacity = typeof opacity === 'number' ? opacity : activeBrushOpacity || DEFAULT_BRUSH_OPACITY;
+      annotation = {
+        ...base,
+        points: merged,
+        strokeWidth,
+        brushSize: baseSize,
+        mode: mode || 'freehand',
+        pressureFactor,
+        pressureEnabled,
+        opacity: strokeOpacity,
+      };
+      if (isFreehandCommentMode) {
+        const bounds = getBoundingRectFromPoints(merged);
+        if (bounds) {
+          handleCreateWorkspaceComment({
+            sourceRect: bounds,
+            pageNumber,
+            sourceType: 'freehand',
+            quoteText: 'Freehand sketch',
+          });
+        }
+      }
     }
     if (annotation) updateAnnotations((prev) => [...prev, annotation]);
     setDrawingState(null);
-  }, [drawingState, updateAnnotations, activeColor, handleExtractClipFromArea]);
+  }, [drawingState, updateAnnotations, activeColor, handleExtractClipFromArea, activeBrushSize, activeBrushOpacity, handleCreateWorkspaceComment, isFreehandCommentMode]);
 
   // ---------- BOOKMARK TOOL ----------
   const addBookmark = useCallback((event, pageNumber, overlayKey) => {
@@ -375,21 +624,50 @@ const DocumentWorkspacePage = () => {
     if (['highlight', 'freehand', 'clip'].includes(activeTool)) {
       event.preventDefault();
       const p = getNormalizedPoint(event, overlay);
-      setDrawingState({
-        type: activeTool,
-        pageNumber,
-        overlayKey,
-        ...(activeTool === 'freehand' ? { points: [p] } : { start: p }),
-      });
+      if (activeTool === 'freehand') {
+        const initialPressure = getPointerPressure(event, isPressureEnabled);
+        setDrawingState({
+          type: 'freehand',
+          pageNumber,
+          overlayKey,
+          points: freehandMode === 'straight' ? [p, p] : [p],
+          brushSize: activeBrushSize,
+          mode: freehandMode,
+          pressureEnabled: isPressureEnabled,
+          pressure: initialPressure,
+          opacity: activeBrushOpacity,
+        });
+      } else {
+        setDrawingState({
+          type: activeTool,
+          pageNumber,
+          overlayKey,
+          start: p,
+        });
+      }
       return;
     }
 
     // comment tool
     if (activeTool === 'comment') {
-      applyLineAnnotation('comment');
+      event.preventDefault();
+      const point = getNormalizedPoint(event, overlay);
+      const sourceRect = {
+        x: clamp(point.x - 0.02, 0, 0.96),
+        y: clamp(point.y - 0.02, 0, 0.96),
+        width: 0.04,
+        height: 0.04,
+      };
+      handleCreateWorkspaceComment({
+        sourceRect,
+        pageNumber,
+        sourceType: 'pin',
+        quoteText: '',
+      });
+      setActiveTool('select');
       return;
     }
-  }, [activeTool, addBookmark, applyLineAnnotation]);
+  }, [activeTool, addBookmark, applyLineAnnotation, activeBrushSize, freehandMode, isPressureEnabled, activeBrushOpacity, handleCreateWorkspaceComment]);
 
   const handlePointerMove = useCallback((event, overlayKey) => {
     const overlay = overlayRefs.current[overlayKey];
@@ -435,7 +713,15 @@ const DocumentWorkspacePage = () => {
     if (!drawingState || drawingState.overlayKey !== overlayKey) return;
     const p = getNormalizedPoint(event, overlay);
     if (drawingState.type === 'freehand') {
-      setDrawingState((prev) => ({ ...prev, points: [...prev.points, p], lastPoint: p }));
+      const pressureValue = getPointerPressure(event, drawingState.pressureEnabled);
+      setDrawingState((prev) => {
+        if (!prev) return prev;
+        if (prev.mode === 'straight') {
+          const anchor = prev.points[0] || p;
+          return { ...prev, points: [anchor, p], lastPoint: p, pressure: pressureValue };
+        }
+        return { ...prev, points: [...prev.points, p], lastPoint: p, pressure: pressureValue };
+      });
     } else if (drawingState.type === 'highlight' || drawingState.type === 'clip') {
       setDrawingState((prev) => ({ ...prev, lastPoint: p }));
     }
@@ -585,7 +871,13 @@ const DocumentWorkspacePage = () => {
       };
       return [combined, ...prev.filter(c => !selectedClippings.includes(c.id))];
     });
-    setWorkspaceItems(prev => prev.filter(it => !selectedClippings.includes(it.clippingId)));
+    setWorkspaceItems(prev =>
+      prev.filter(
+        (it) =>
+          getWorkspaceItemType(it) !== 'clip' ||
+          !selectedClippings.includes(getWorkspaceItemSourceId(it)),
+      ),
+    );
     setSelectedClippings([]);
   }, [selectedClippings]);
 
@@ -694,7 +986,14 @@ const DocumentWorkspacePage = () => {
       // position relative to workspace canvas
       const x = clamp((ev.clientX - rect.left) / rect.width, 0.02, 0.98);
       const y = clamp((ev.clientY - rect.top) / rect.height, 0.02, 0.98);
-      const newItem = { id: `ws-${Date.now()}-${Math.floor(Math.random()*10000)}`, clippingId: clipId, x, y, createdAt: new Date().toISOString() };
+      const newItem = {
+        id: createWorkspaceItemId(),
+        type: 'clip',
+        sourceId: clipId,
+        x,
+        y,
+        createdAt: new Date().toISOString(),
+      };
       setWorkspaceItems(prev => [newItem, ...prev]);
       const firstSegmentPage = clip.segments?.[0]?.sourcePage;
       const targetPage = getPrimaryPageFromSource(firstSegmentPage || clip.sourcePage || primaryPage);
@@ -710,7 +1009,13 @@ const DocumentWorkspacePage = () => {
 
   // remove workspace items whose clips no longer exist
   useEffect(() => {
-    setWorkspaceItems(prev => prev.filter(item => clippings.some(c => c.id === item.clippingId)));
+    setWorkspaceItems((prev) =>
+      prev.filter((item) => {
+        if (getWorkspaceItemType(item) === 'comment') return true;
+        const sourceId = getWorkspaceItemSourceId(item);
+        return clippings.some((c) => c.id === sourceId);
+      }),
+    );
   }, [clippings]);
 
   // ---------- WORKSPACE: dragging items to reposition ----------
@@ -751,7 +1056,7 @@ const DocumentWorkspacePage = () => {
   }, []);
 
   // ---------- CONNECTORS: compute lines from clipping.sourceRect center to workspace item ----------
-  const computeConnectorPoints = useCallback((clip, item) => {
+  const computeConnectorPoints = useCallback((item, source) => {
     const viewerDeck = viewerDeckRef.current;
     const viewerRect = viewerCanvasRef.current?.getBoundingClientRect();
     const workspaceRect = workspaceRef.current?.getBoundingClientRect();
@@ -776,21 +1081,51 @@ const DocumentWorkspacePage = () => {
       };
     };
 
-    if (clip?.segments?.length) {
-      return clip.segments
+    const itemType = getWorkspaceItemType(item);
+
+    if (itemType === 'comment') {
+      if (!source || source.pageNumber !== primaryPage) return [];
+      const connector = buildConnector(source.sourceRect);
+      return connector ? [connector] : [];
+    }
+
+    if (itemType === 'clip' && source?.segments?.length) {
+      return source.segments
         .filter(seg => getPrimaryPageFromSource(seg.sourcePage) === primaryPage)
         .map(seg => buildConnector(seg.sourceRect))
         .filter(Boolean);
     }
 
-    if (getPrimaryPageFromSource(clip?.sourcePage) !== primaryPage) return [];
-    const single = buildConnector(clip.sourceRect);
+    if (itemType === 'clip' && getPrimaryPageFromSource(source?.sourcePage) !== primaryPage) return [];
+    const single = buildConnector(source?.sourceRect);
     return single ? [single] : [];
   }, [primaryPage]);
 
   // when clicking workspace item: jump to source page and pulse highlight
   const handleWorkspaceItemClick = useCallback((item) => {
-    const clip = clippings.find(c => c.id === item.clippingId);
+    const itemType = getWorkspaceItemType(item);
+    const sourceId = getWorkspaceItemSourceId(item);
+    if (itemType === 'comment') {
+      const comment = workspaceComments.find((c) => c.id === sourceId);
+      if (!comment) return;
+      setPrimaryPage(comment.pageNumber);
+      const highlightRect = comment.sourceRect;
+      if (highlightRect) {
+        const tmp = {
+          id: createAnnotationId(),
+          type: 'highlight',
+          subtype: 'area',
+          pageNumber: comment.pageNumber,
+          color: '#bef264',
+          position: { ...highlightRect },
+          createdAt: new Date().toISOString(),
+        };
+        setAnnotations((prev) => [tmp, ...prev]);
+        setTimeout(() => setAnnotations((prev) => prev.filter((a) => a.id !== tmp.id)), 1000);
+      }
+      return;
+    }
+    const clip = clippings.find(c => c.id === sourceId);
     if (!clip) return;
     const targetSegment = clip.segments?.find(seg => getPrimaryPageFromSource(seg.sourcePage) === primaryPage) || clip.segments?.[0];
     const targetPage = targetSegment ? getPrimaryPageFromSource(targetSegment.sourcePage) : clip.sourcePage;
@@ -809,7 +1144,7 @@ const DocumentWorkspacePage = () => {
       setAnnotations(prev => [tmp, ...prev]);
       setTimeout(() => setAnnotations(prev => prev.filter(a => a.id !== tmp.id)), 1000);
     }
-  }, [clippings, primaryPage]);
+  }, [clippings, workspaceComments, primaryPage]);
 
   // ---------- ZOOM & PAN ----------
 
@@ -885,6 +1220,26 @@ const DocumentWorkspacePage = () => {
     setIsRightPanelCollapsed(prev => !prev);
   }, []);
 
+  const handleWorkspaceResizeStart = useCallback((event) => {
+    event.preventDefault();
+    const deck = viewerDeckRef.current;
+    if (!deck) return;
+    const rect = deck.getBoundingClientRect();
+    workspaceResizeMetaRef.current = {
+      startX: event.clientX,
+      startWidth: workspaceWidth,
+      deckWidth: rect.width || 1,
+    };
+    setIsWorkspaceResizing(true);
+  }, [workspaceWidth]);
+
+  const handleWorkspaceResizeKeyDown = useCallback((event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const delta = event.key === 'ArrowRight' ? -0.02 : 0.02;
+    setWorkspaceWidth((prev) => clamp(prev + delta, WORKSPACE_MIN_WIDTH, WORKSPACE_MAX_WIDTH));
+  }, []);
+
   const handleManualZoom = useCallback((direction) => {
     setPrimaryScale(prev => {
       const delta = direction === 'in' ? 0.05 : -0.05;
@@ -894,11 +1249,28 @@ const DocumentWorkspacePage = () => {
 
   const handleRemoveClipping = useCallback((clippingId) => {
     setClippings(prev => prev.filter(c => c.id !== clippingId));
-    setWorkspaceItems(prev => prev.filter(it => it.clippingId !== clippingId));
+    setWorkspaceItems((prev) =>
+      prev.filter(
+        (it) =>
+          getWorkspaceItemType(it) !== 'clip' ||
+          getWorkspaceItemSourceId(it) !== clippingId,
+      ),
+    );
     setSelectedClippings(prev => prev.filter(id => id !== clippingId));
   }, []);
 
   const handleToolSelect = useCallback((toolId) => {
+    if (toolId === 'freehand') {
+      if (activeTool === 'freehand') {
+        setIsFreehandPaletteOpen(prev => !prev);
+      } else {
+        setActiveTool('freehand');
+        dismissFreehandPalette();
+      }
+      return;
+    }
+    dismissFreehandPalette();
+
     if (toolId === 'underline') {
       applyLineAnnotation('underline');
       return;
@@ -912,15 +1284,30 @@ const DocumentWorkspacePage = () => {
       return;
     }
     if (toolId === 'comment') {
-      applyLineAnnotation('comment');
+      setActiveTool('comment');
       return;
     }
     setActiveTool(toolId);
-  }, [applyLineAnnotation]);
+  }, [activeTool, applyLineAnnotation, dismissFreehandPalette]);
 
   // ---------- rendering ----------
   return (
     <div className={styles.workspace}>
+      {selectionMenu && (
+        <div
+          className={styles.selectionCommentMenu}
+          style={{ left: selectionMenu.x, top: selectionMenu.y }}
+        >
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleCreateCommentFromSelection}
+            title="Add comment"
+          >
+            Comment
+          </button>
+        </div>
+      )}
       <ClippingsPanel
         clippings={clippings}
         selectedClippings={selectedClippings}
@@ -945,6 +1332,20 @@ const DocumentWorkspacePage = () => {
           colorOptions={COLOR_OPTIONS}
           activeColor={activeColor}
           onColorSelect={setActiveColor}
+          brushSizeOptions={BRUSH_SIZES}
+          activeBrushSize={activeBrushSize}
+          onBrushSizeSelect={setActiveBrushSize}
+          activeBrushOpacity={activeBrushOpacity}
+          onBrushOpacityChange={setActiveBrushOpacity}
+          freehandColorOptions={FREEHAND_COLORS}
+          freehandMode={freehandMode}
+          onFreehandModeChange={setFreehandMode}
+          isPressureEnabled={isPressureEnabled}
+          onTogglePressure={setIsPressureEnabled}
+          isFreehandCommentMode={isFreehandCommentMode}
+          onToggleFreehandCommentMode={setIsFreehandCommentMode}
+          isFreehandPaletteVisible={isFreehandPaletteOpen}
+          onFreehandPaletteDismiss={dismissFreehandPalette}
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
           onSearch={handleSearch}
@@ -961,21 +1362,39 @@ const DocumentWorkspacePage = () => {
           {/* Connector SVG - positioned absolutely to span both panes */}
           <svg className={styles.connectorSvg}>
             {workspaceItems.map(item => {
-              const clip = clippings.find(c => c.id === item.clippingId);
-              if (!clip) return null;
-              const connectors = computeConnectorPoints(clip, item);
+              const itemType = getWorkspaceItemType(item);
+              const sourceId = getWorkspaceItemSourceId(item);
+              const source =
+                itemType === 'comment'
+                  ? workspaceComments.find((comment) => comment.id === sourceId)
+                  : clippings.find((clip) => clip.id === sourceId);
+              if (!source) return null;
+              const connectors = computeConnectorPoints(item, source);
               if (!connectors || connectors.length === 0) return null;
               return connectors.map((pts, idx) => {
                 const { from, to } = pts;
                 const midX = (from.x + to.x) / 2;
                 const path = `M ${from.x} ${from.y} C ${midX} ${from.y} ${midX} ${to.y} ${to.x} ${to.y}`;
-                return <path key={`conn-${item.id}-${idx}`} d={path} stroke="rgba(99, 102, 241, 0.35)" strokeWidth={1.8} fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+                return (
+                  <path
+                    key={`conn-${item.id}-${idx}`}
+                    d={path}
+                    stroke={itemType === 'comment' ? 'rgba(16, 185, 129, 0.6)' : 'rgba(99, 102, 241, 0.35)'}
+                    strokeWidth={1.8}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                );
               });
             })}
           </svg>
 
           {/* DOCUMENT PANE - Left side */}
-          <div className={styles.documentPane}>
+          <div
+            className={styles.documentPane}
+            style={{ flexBasis: `${documentWidthPercent}%`, maxWidth: `${documentWidthPercent}%` }}
+          >
             <div ref={viewerZoomWrapperRef} className={styles.viewerZoomWrapper}>
               <Document file={demoPdf} onLoadSuccess={onDocumentLoadSuccess}>
                 <section className={styles.singlePane}>
@@ -1017,14 +1436,33 @@ const DocumentWorkspacePage = () => {
                           }
                           if (a.type === 'freehand') {
                             const pts = a.points.map(p => `${p.x * 100},${p.y * 100}`).join(' ');
-                            return <polyline key={a.id} className={styles.freehandPath} points={pts} stroke={a.color} vectorEffect="non-scaling-stroke" />;
+                            const strokeWidthValue = a.strokeWidth || DEFAULT_BRUSH_SIZE;
+                            const strokeOpacityValue = typeof a.opacity === 'number' ? a.opacity : DEFAULT_BRUSH_OPACITY;
+                            return (
+                              <polyline
+                                key={a.id}
+                                className={styles.freehandPath}
+                                points={pts}
+                                stroke={a.color}
+                                strokeOpacity={strokeOpacityValue}
+                                style={{ '--freehand-stroke-width': `${strokeWidthValue}` }}
+                                vectorEffect="non-scaling-stroke"
+                              />
+                            );
                           }
                           return null;
                         })}
 
                       {/* live drawing */}
                       {drawingState?.type === 'freehand' && drawingState.points?.length > 1 && (
-                        <polyline className={styles.freehandPath} points={drawingState.points.map(p => `${p.x * 100},${p.y * 100}`).join(' ')} stroke={activeColor} vectorEffect="non-scaling-stroke" />
+                        <polyline
+                          className={styles.freehandPath}
+                          points={drawingState.points.map(p => `${p.x * 100},${p.y * 100}`).join(' ')}
+                          stroke={activeColor}
+                          strokeOpacity={liveFreehandOpacity ?? DEFAULT_BRUSH_OPACITY}
+                          style={{ '--freehand-stroke-width': `${liveFreehandStrokeWidth || DEFAULT_BRUSH_SIZE}` }}
+                          vectorEffect="non-scaling-stroke"
+                        />
                       )}
                       {drawingState?.type === 'highlight' && drawingState.start && (
                         <rect className={styles.highlightRect}
@@ -1100,8 +1538,25 @@ const DocumentWorkspacePage = () => {
           </div>
           </div>
 
+          <div
+            className={`${styles.workspaceResizer} ${isWorkspaceResizing ? styles.workspaceResizerActive : ''}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuemin={Math.round(WORKSPACE_MIN_WIDTH * 100)}
+            aria-valuemax={Math.round(WORKSPACE_MAX_WIDTH * 100)}
+            aria-valuenow={workspaceAriaValue}
+            tabIndex={0}
+            onPointerDown={handleWorkspaceResizeStart}
+            onKeyDown={handleWorkspaceResizeKeyDown}
+          >
+            <span className={styles.workspaceResizerHandle} />
+          </div>
+
           {/* WORKSPACE PANE - Right side (separate from document) */}
-          <div className={`${styles.workspacePane} ${isRightPanelCollapsed ? styles.workspacePaneExpanded : ''}`}>
+          <div
+            className={styles.workspacePane}
+            style={{ flexBasis: `${workspaceWidthPercent}%`, maxWidth: `${workspaceWidthPercent}%` }}
+          >
             <div className={styles.workspaceHeader}>
               <h3 className={styles.workspaceTitle}>Workspace</h3>
               <p className={styles.workspaceSubtitle}>Drop clippings here. Drag to rearrange. Click to jump to source.</p>
@@ -1118,7 +1573,12 @@ const DocumentWorkspacePage = () => {
                 </div>
               ) : (
                 workspaceItems.map(item => {
-                  const clip = clippings.find(c => c.id === item.clippingId);
+                  const itemType = getWorkspaceItemType(item);
+                  const sourceId = getWorkspaceItemSourceId(item);
+                  const clip = itemType === 'clip' ? clippings.find(c => c.id === sourceId) : null;
+                  const comment = itemType === 'comment' ? workspaceComments.find(c => c.id === sourceId) : null;
+                  if (itemType === 'clip' && !clip) return null;
+                  if (itemType === 'comment' && !comment) return null;
                   return (
                     <div
                       key={item.id}
@@ -1128,34 +1588,58 @@ const DocumentWorkspacePage = () => {
                       style={{
                         left: `${item.x * 100}%`,
                         top: `${item.y * 100}%`,
-                      transform: draggingWorkspaceItemId.current === item.id ? 'translateZ(10px) scale(1.02)' : 'none',
-    zIndex: draggingWorkspaceItemId.current === item.id ? 1000 : 1,
-    boxShadow: draggingWorkspaceItemId.current === item.id 
-      ? '0 20px 40px rgba(0,0,0,0.2)' 
-      : '0 4px 12px rgba(0,0,0,0.1)',
-  }}
+                        transform: draggingWorkspaceItemId.current === item.id ? 'translateZ(10px) scale(1.02)' : 'none',
+                        zIndex: draggingWorkspaceItemId.current === item.id ? 1000 : 1,
+                        boxShadow:
+                          draggingWorkspaceItemId.current === item.id
+                            ? '0 20px 40px rgba(0,0,0,0.2)'
+                            : '0 4px 12px rgba(0,0,0,0.1)',
+                      }}
                       onPointerDown={(ev) => startMoveWorkspaceItem(ev, item)}
                       onClick={() => handleWorkspaceItemClick(item)}
                     >
-                      <div className={styles.workspaceItemHeader}>{clip?.segments ? 'Combined Clip' : 'Clip'}</div>
-                      <div className={styles.workspaceItemContent}>
-                        {clip?.segments
-                          ? clip.segments.map(seg => (
-                              <div key={seg.id} className={styles.workspaceSegment}>
-                                <span className={styles.workspaceSegmentLabel}>{seg.label}</span>
-                                <p>{seg.content}</p>
-                              </div>
-                            ))
-                          : clip?.content}
-                      </div>
-                      <div className={styles.workspaceItemActions}>
-                        <button className={styles.linkButton} onClick={(e) => {
-                          e.stopPropagation();
-                          const jumpTarget = clip?.segments?.[0]?.sourcePage || clip?.sourcePage;
-                          if (jumpTarget) setPrimaryPage(getPrimaryPageFromSource(jumpTarget));
-                        }}>Jump</button>
-                        {/* <button className={styles.linkButton} onClick={(e) => { e.stopPropagation(); setWorkspaceItems(prev => prev.filter(it => it.id !== item.id)); }}>Remove</button> */}
-                      </div>
+                      {itemType === 'clip' && (
+                        <>
+                          <div className={styles.workspaceItemHeader}>{clip?.segments ? 'Combined Clip' : 'Clip'}</div>
+                          <div className={styles.workspaceItemContent}>
+                            {clip?.segments
+                              ? clip.segments.map(seg => (
+                                  <div key={seg.id} className={styles.workspaceSegment}>
+                                    <span className={styles.workspaceSegmentLabel}>{seg.label}</span>
+                                    <p>{seg.content}</p>
+                                  </div>
+                                ))
+                              : clip?.content}
+                          </div>
+                          <div className={styles.workspaceItemActions}>
+                            <button
+                              className={styles.linkButton}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const jumpTarget = clip?.segments?.[0]?.sourcePage || clip?.sourcePage;
+                                if (jumpTarget) setPrimaryPage(getPrimaryPageFromSource(jumpTarget));
+                              }}
+                            >
+                              Jump
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      {itemType === 'comment' && comment && (
+                        <div className={styles.workspaceCommentCard}>
+                          <div className={styles.workspaceCommentHeader}>
+                            <span>Comment</span>
+                            <span>Page {comment.pageNumber}</span>
+                          </div>
+                          {comment.quoteText && (
+                            <blockquote className={styles.workspaceCommentQuote}>
+                              “{comment.quoteText.substring(0, 160)}
+                              {comment.quoteText.length > 160 ? '…' : ''}”
+                            </blockquote>
+                          )}
+                          <p className={styles.workspaceCommentBody}>{comment.content}</p>
+                        </div>
+                      )}
                     </div>
                   );
                 })
