@@ -22,18 +22,22 @@ const FreehandPalette = forwardRef(
     ref,
   ) => (
     <div className={styles.freehandPalette} ref={ref}>
-      <div className={styles.freehandModeToggle}>
-        {['straight', 'freehand'].map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            className={`${styles.modeButton} ${freehandMode === mode ? styles.modeButtonActive : ''}`}
-            onClick={() => onFreehandModeChange?.(mode)}
-          >
-            <span className={styles.modeIcon} aria-hidden="true" />
-            {mode === 'straight' ? 'Straight' : 'Freehand'}
-          </button>
-        ))}
+      <div className={styles.paletteSection}>
+        <p className={styles.panelLabel}>Stroke Type</p>
+        <div className={styles.freehandModeToggle}>
+          {['straight', 'freehand'].map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={`${styles.modeButton} ${freehandMode === mode ? styles.modeButtonActive : ''}`}
+              onClick={() => onFreehandModeChange?.(mode)}
+              aria-pressed={freehandMode === mode}
+            >
+              <span className={styles.modeIcon} aria-hidden="true" />
+              {mode === 'straight' ? 'Straight' : 'Freehand'}
+            </button>
+          ))}
+        </div>
       </div>
       <div className={styles.paletteSection}>
         <p className={styles.panelLabel}>Colors</p>

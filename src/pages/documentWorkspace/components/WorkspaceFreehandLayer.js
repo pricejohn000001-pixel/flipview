@@ -10,6 +10,50 @@ import styles from '../documentWorkspace.module.css';
  * items remain interactive.
  */
 const VIEWBOX_SIZE = 1000;
+const clampValue = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const distanceSqPointToSegment = (point, a, b) => {
+  if (!point || !a || !b) return Number.POSITIVE_INFINITY;
+  const ax = a.x;
+  const ay = a.y;
+  const bx = b.x;
+  const by = b.y;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const segmentLengthSq = dx * dx + dy * dy;
+  if (segmentLengthSq === 0) {
+    const diffX = point.x - ax;
+    const diffY = point.y - ay;
+    return diffX * diffX + diffY * diffY;
+  }
+  const t = clampValue(((point.x - ax) * dx + (point.y - ay) * dy) / segmentLengthSq, 0, 1);
+  const projX = ax + t * dx;
+  const projY = ay + t * dy;
+  const diffX = point.x - projX;
+  const diffY = point.y - projY;
+  return diffX * diffX + diffY * diffY;
+};
+
+const getStrokeThresholdSq = (stroke) => {
+  const width = Math.max(stroke?.strokeWidth || 8, 4);
+  const normalizedWidth = width / VIEWBOX_SIZE;
+  const threshold = Math.max(normalizedWidth * 1.5, 0.01);
+  return threshold * threshold;
+};
+
+const doesStrokeHitPoint = (stroke, point) => {
+  if (!stroke?.points || stroke.points.length < 2) return false;
+  const thresholdSq = getStrokeThresholdSq(stroke);
+  for (let i = 1; i < stroke.points.length; i += 1) {
+    const prevPoint = stroke.points[i - 1];
+    const currentPoint = stroke.points[i];
+    const distSq = distanceSqPointToSegment(point, prevPoint, currentPoint);
+    if (distSq <= thresholdSq) {
+      return true;
+    }
+  }
+  return false;
+};
 
 const WorkspaceFreehandLayer = ({
   activeTool,
@@ -18,6 +62,7 @@ const WorkspaceFreehandLayer = ({
   activeBrushOpacity,
   freehandMode = 'freehand',
   isPressureEnabled = true,
+  eraserToolId = 'workspaceEraser',
 }) => {
   const containerRef = useRef(null);
   const [drawingState, setDrawingState] = useState(null);
@@ -42,9 +87,16 @@ const WorkspaceFreehandLayer = ({
     [clamp, isPressureEnabled],
   );
 
+  const eraseStrokesNearPoint = useCallback((point) => {
+    if (!point) return;
+    setStrokes((prev) => prev.filter((stroke) => !doesStrokeHitPoint(stroke, point)));
+  }, []);
+
   const handlePointerDown = useCallback(
     (event) => {
-      if (activeTool !== 'freehand') return;
+      const isFreehand = activeTool === 'freehand';
+      const isEraser = activeTool === eraserToolId;
+      if (!isFreehand && !isEraser) return;
       const container = containerRef.current;
       if (!container) return;
 
@@ -52,6 +104,20 @@ const WorkspaceFreehandLayer = ({
       event.stopPropagation();
 
       const point = getNormalizedPoint(event, container);
+
+      if (isEraser) {
+        eraseStrokesNearPoint(point);
+        setDrawingState({ type: 'eraser' });
+        if (event.target?.setPointerCapture) {
+          try {
+            event.target.setPointerCapture(event.pointerId);
+          } catch {
+            // ignore
+          }
+        }
+        return;
+      }
+
       const baseSize = activeBrushSize || 10;
       const initialPressure = getPointerPressure(event);
 
@@ -78,18 +144,36 @@ const WorkspaceFreehandLayer = ({
         }
       }
     },
-    [activeTool, activeBrushSize, activeBrushOpacity, freehandMode, isPressureEnabled, getNormalizedPoint, getPointerPressure],
+    [
+      activeTool,
+      activeBrushSize,
+      activeBrushOpacity,
+      freehandMode,
+      isPressureEnabled,
+      getNormalizedPoint,
+      getPointerPressure,
+      eraseStrokesNearPoint,
+      eraserToolId,
+    ],
   );
 
   const handlePointerMove = useCallback(
     (event) => {
-      if (!drawingState || drawingState.type !== 'freehand') return;
+      if (!drawingState) return;
       const container = containerRef.current;
       if (!container) return;
 
       event.preventDefault();
 
       const point = getNormalizedPoint(event, container);
+
+      if (drawingState.type === 'eraser') {
+        eraseStrokesNearPoint(point);
+        return;
+      }
+
+      if (drawingState.type !== 'freehand') return;
+
       const pressureValue = getPointerPressure(event);
 
       setDrawingState((prev) => {
@@ -101,12 +185,12 @@ const WorkspaceFreehandLayer = ({
         return { ...prev, points: [...prev.points, point], pressure: pressureValue };
       });
     },
-    [drawingState, getNormalizedPoint, getPointerPressure],
+    [drawingState, eraseStrokesNearPoint, getNormalizedPoint, getPointerPressure],
   );
 
   const handlePointerUp = useCallback(
     (event) => {
-      if (!drawingState || drawingState.type !== 'freehand') {
+      if (!drawingState) {
         setDrawingState(null);
         return;
       }
@@ -128,6 +212,17 @@ const WorkspaceFreehandLayer = ({
       event.preventDefault();
 
       const endPoint = getNormalizedPoint(event, container);
+
+      if (drawingState.type === 'eraser') {
+        eraseStrokesNearPoint(endPoint);
+        setDrawingState(null);
+        return;
+      }
+
+      if (drawingState.type !== 'freehand') {
+        setDrawingState(null);
+        return;
+      }
 
       let mergedPoints;
       if (drawingState.mode === 'straight') {
@@ -166,7 +261,7 @@ const WorkspaceFreehandLayer = ({
 
       setDrawingState(null);
     },
-    [drawingState, getNormalizedPoint, activeBrushSize, activeBrushOpacity, activeColor],
+    [drawingState, getNormalizedPoint, activeBrushSize, activeBrushOpacity, activeColor, eraseStrokesNearPoint],
   );
 
   const liveStrokeWidth =
@@ -184,7 +279,7 @@ const WorkspaceFreehandLayer = ({
         : 1
       : null;
 
-  const isDrawingActive = activeTool === 'freehand';
+  const isDrawingActive = activeTool === 'freehand' || activeTool === eraserToolId;
 
   const toSvgPoints = useCallback(
     (points = []) => points.map((p) => `${p.x * VIEWBOX_SIZE},${p.y * VIEWBOX_SIZE}`).join(' '),

@@ -20,6 +20,7 @@ import {
   MdChevronRight,
   MdContentCut,
   MdClose,
+  MdAutoFixHigh,
 } from 'react-icons/md';
 import demoPdf from '../../assets/demoM.pdf';
 import styles from './documentWorkspace.module.css';
@@ -32,6 +33,8 @@ import WorkspaceFreehandLayer from './components/WorkspaceFreehandLayer';
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.3.93/pdf.worker.min.mjs`;
 
 // ---------- constants ----------
+const WORKSPACE_ERASER_TOOL_ID = 'workspaceEraser';
+
 const TOOL_TYPES = [
   { id: 'select', label: 'Select', icon: MdViewSidebar },
   { id: 'highlight', label: 'Area Highlight', icon: MdHighlight },
@@ -39,6 +42,7 @@ const TOOL_TYPES = [
   { id: 'underline', label: 'Underline', icon: MdFormatUnderlined },
   { id: 'strike', label: 'Strike-through', icon: MdFormatStrikethrough },
   { id: 'freehand', label: 'Freehand', icon: MdBrush },
+  { id: WORKSPACE_ERASER_TOOL_ID, label: 'Eraser', icon: MdAutoFixHigh },
   { id: 'comment', label: 'Note', icon: MdComment },
   { id: 'bookmark', label: 'Bookmark', icon: MdBookmarkAdd },
   { id: 'clip', label: 'Clip Area', icon: MdContentCut },
@@ -66,6 +70,8 @@ const WORKSPACE_RESIZER_WIDTH = 18;
 const WORKSPACE_SLIDE_MIN = 0;
 const WORKSPACE_SLIDE_MAX = WORKSPACE_FIXED_WIDTH_PX;
 const createWorkspaceItemId = () => `ws-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+const WORKSPACE_LEFT_STACK_X = 0.08;
+const WORKSPACE_LEFT_STACK_SPREAD = 0.04;
 const getWorkspaceItemType = (item) => item?.type || 'clip';
 const getWorkspaceItemSourceId = (item) => item?.sourceId || item?.clippingId;
 const getBoundingRectFromPoints = (points = []) => {
@@ -359,11 +365,16 @@ const DocumentWorkspacePage = () => {
       setWorkspaceItems((prev) => {
         const commentCount = prev.filter((it) => getWorkspaceItemType(it) === 'comment').length;
         const baseY = 0.18 + ((commentCount * 0.14) % 0.6);
+        const leftOffset = clamp(
+          WORKSPACE_LEFT_STACK_X + (commentCount % 3) * (WORKSPACE_LEFT_STACK_SPREAD / 2) + Math.random() * 0.01,
+          0.02,
+          0.2,
+        );
         const item = {
           id: createWorkspaceItemId(),
           type: 'comment',
           sourceId: newComment.id,
-          x: clamp(0.72 + Math.random() * 0.08, 0.05, 0.95),
+          x: leftOffset,
           y: clamp(baseY, 0.05, 0.92),
           createdAt,
         };
@@ -1070,18 +1081,25 @@ const DocumentWorkspacePage = () => {
       if (!clip) return;
       const rect = root.getBoundingClientRect();
       if (!rect) return;
-      // position relative to workspace canvas
-      const x = clamp((ev.clientX - rect.left) / rect.width, 0.02, 0.98);
-      const y = clamp((ev.clientY - rect.top) / rect.height, 0.02, 0.98);
-      const newItem = {
-        id: createWorkspaceItemId(),
-        type: 'clip',
-        sourceId: clipId,
-        x,
-        y,
-        createdAt: new Date().toISOString(),
-      };
-      setWorkspaceItems(prev => [newItem, ...prev]);
+      const pointerY = clamp((ev.clientY - rect.top) / rect.height, 0.02, 0.98);
+      const createdAt = new Date().toISOString();
+      setWorkspaceItems(prev => {
+        const clipCount = prev.filter((it) => getWorkspaceItemType(it) === 'clip').length;
+        const leftOffset = clamp(
+          WORKSPACE_LEFT_STACK_X + (clipCount % 4) * (WORKSPACE_LEFT_STACK_SPREAD / 2) + Math.random() * 0.01,
+          0.02,
+          0.22,
+        );
+        const newItem = {
+          id: createWorkspaceItemId(),
+          type: 'clip',
+          sourceId: clipId,
+          x: leftOffset,
+          y: pointerY,
+          createdAt,
+        };
+        return [newItem, ...prev];
+      });
       const firstSegmentPage = clip.segments?.[0]?.sourcePage;
       const targetPage = getPrimaryPageFromSource(firstSegmentPage || clip.sourcePage || primaryPage);
       setPrimaryPage(targetPage);
@@ -1827,8 +1845,9 @@ const DocumentWorkspacePage = () => {
                 activeColor={activeColor}
                 activeBrushSize={activeBrushSize}
                 activeBrushOpacity={activeBrushOpacity}
-                freehandMode={freehandMode}
+            freehandMode={freehandMode}
                 isPressureEnabled={isPressureEnabled}
+            eraserToolId={WORKSPACE_ERASER_TOOL_ID}
               />
             </div>
           </div>
