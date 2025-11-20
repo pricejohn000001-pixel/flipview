@@ -3,7 +3,6 @@ import {
   MdZoomIn,
   MdZoomOut,
   MdSearch,
-  MdTextFields,
 } from 'react-icons/md';
 import styles from '../documentWorkspace.module.css';
 import FreehandPalette from './FreehandPalette';
@@ -34,37 +33,7 @@ const FloatingToolbar = ({
   searchTerm,
   onSearchTermChange,
   onSearch,
-  handleOcrCurrentPage,
-  handleOcrAllPages,
-  isOcrRunning,
-  ocrResults,
-  ocrProgress,
-  primaryPage,
-  numPages,
 }) => {
-  const ocrBadge = ocrProgress[primaryPage];
-  const hasOcr = ocrResults[primaryPage];
-
-  const progressBadgeStyle = {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    fontSize: 8,
-    background: '#3b82f6',
-    color: 'white',
-    borderRadius: '50%',
-    width: 14,
-    height: 14,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  };
-
-  const successBadgeStyle = {
-    ...progressBadgeStyle,
-    background: '#22c55e',
-  };
-
   const paletteRef = useRef(null);
   const freehandButtonRef = useRef(null);
 
@@ -135,38 +104,6 @@ const FloatingToolbar = ({
               <button type="button" className={styles.toolIconButton} onClick={onSearch} title="Search document">
                 <MdSearch size={18} />
               </button>
-            </div>
-            <div className={styles.toolbarSubGroup}>
-              <button
-                type="button"
-                className={styles.toolIconButton}
-                onClick={handleOcrCurrentPage}
-                disabled={isOcrRunning}
-                title={hasOcr ? `Re-run OCR on page ${primaryPage}` : `Run OCR on page ${primaryPage}`}
-                style={{ position: 'relative' }}
-              >
-                <MdTextFields size={18} />
-                {ocrBadge && ocrBadge.progress > 0 && ocrBadge.progress < 100 && (
-                  <span style={progressBadgeStyle}>
-                    {ocrBadge.progress}%
-                  </span>
-                )}
-                {hasOcr && !ocrBadge && (
-                  <span style={successBadgeStyle}>✓</span>
-                )}
-              </button>
-              {numPages > 1 && (
-                <button
-                  type="button"
-                  className={styles.toolIconButton}
-                  onClick={handleOcrAllPages}
-                  disabled={isOcrRunning}
-                  title={`Run OCR on all ${numPages} pages`}
-                >
-                  <MdTextFields size={18} />
-                  <span style={{ fontSize: 10, marginLeft: 2 }}>All</span>
-                </button>
-              )}
             </div>
           </div>
         </div>

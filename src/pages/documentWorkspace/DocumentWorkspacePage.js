@@ -19,13 +19,15 @@ import {
   MdChevronLeft,
   MdChevronRight,
   MdContentCut,
+  MdClose,
 } from 'react-icons/md';
-import demoPdf from '../../assets/demo.pdf';
+import demoPdf from '../../assets/demoM.pdf';
 import styles from './documentWorkspace.module.css';
 import useOcr from './hooks/useOcr';
 import FloatingToolbar from './components/FloatingToolbar';
 import ClippingsPanel from './components/ClippingsPanel';
 import SearchPanel from './components/SearchPanel';
+import WorkspaceFreehandLayer from './components/WorkspaceFreehandLayer';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.3.93/pdf.worker.min.mjs`;
 
@@ -50,8 +52,6 @@ const FREEHAND_COLORS = [
   '#fde047', '#7f1d1d', '#475569', '#a855f7', '#f472b6',
   '#6366f1', '#fb7185', '#f97316', '#14b8a6', '#f0abfc',
 ];
-const BOOKMARK_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
-const DEFAULT_BOOKMARK_COLOR = BOOKMARK_COLORS[0];
 const BRUSH_SIZES = [
   { id: 'hairline', label: 'Hairline', value: 5.2, preview: 4 },
   { id: 'fine', label: 'Fine', value: 5.8, preview: 6 },
@@ -61,9 +61,10 @@ const BRUSH_SIZES = [
 ];
 const DEFAULT_BRUSH_SIZE = BRUSH_SIZES[2].value;
 const DEFAULT_BRUSH_OPACITY = 1;
-const DEFAULT_WORKSPACE_WIDTH = 0.38;
-const WORKSPACE_MIN_WIDTH = 0.22;
-const WORKSPACE_MAX_WIDTH = 0.62;
+const WORKSPACE_FIXED_WIDTH_PX = 1000;
+const WORKSPACE_RESIZER_WIDTH = 18;
+const WORKSPACE_SLIDE_MIN = 0;
+const WORKSPACE_SLIDE_MAX = WORKSPACE_FIXED_WIDTH_PX;
 const createWorkspaceItemId = () => `ws-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 const getWorkspaceItemType = (item) => item?.type || 'clip';
 const getWorkspaceItemSourceId = (item) => item?.sourceId || item?.clippingId;
@@ -118,6 +119,7 @@ const getPointerPressure = (event, enabled) => {
 const DocumentWorkspacePage = () => {
   // Core PDF state
   const [numPages, setNumPages] = useState(null);
+  const [isPdfReady, setIsPdfReady] = useState(false);
   const [primaryPage, setPrimaryPage] = useState(1);
   const [primaryScale, setPrimaryScale] = useState(1.15);
 
@@ -127,14 +129,13 @@ const DocumentWorkspacePage = () => {
   const [annotationFilters, setAnnotationFilters] = useState(() => ANNOTATION_TYPES.reduce((acc, type) => ({ ...acc, [type]: true }), {}));
   const [activeTool, setActiveTool] = useState('select');
   const [activeColor, setActiveColor] = useState(COLOR_OPTIONS[0]);
-  const [activeBookmarkColor, setActiveBookmarkColor] = useState(DEFAULT_BOOKMARK_COLOR);
   const [activeBrushSize, setActiveBrushSize] = useState(DEFAULT_BRUSH_SIZE);
   const [activeBrushOpacity, setActiveBrushOpacity] = useState(DEFAULT_BRUSH_OPACITY);
   const [freehandMode, setFreehandMode] = useState('straight');
   const [isPressureEnabled, setIsPressureEnabled] = useState(true);
   const [isFreehandPaletteOpen, setIsFreehandPaletteOpen] = useState(false);
   const [isFreehandCommentMode, setIsFreehandCommentMode] = useState(false);
-  const [workspaceWidth, setWorkspaceWidth] = useState(DEFAULT_WORKSPACE_WIDTH);
+  const [workspaceSlide, setWorkspaceSlide] = useState(WORKSPACE_SLIDE_MIN);
   const [isWorkspaceResizing, setIsWorkspaceResizing] = useState(false);
   const [selectionMenu, setSelectionMenu] = useState(null);
 
@@ -158,7 +159,7 @@ const DocumentWorkspacePage = () => {
   const viewerCanvasRef = useRef(null);
   const viewerZoomWrapperRef = useRef(null);
   const viewerDeckRef = useRef(null);
-  const workspaceResizeMetaRef = useRef({ startX: 0, startWidth: DEFAULT_WORKSPACE_WIDTH, deckWidth: 1 });
+  const workspaceResizeMetaRef = useRef({ startX: 0, startSlide: WORKSPACE_SLIDE_MIN });
 
   const {
     ocrResults,
@@ -211,10 +212,10 @@ const DocumentWorkspacePage = () => {
   useEffect(() => {
     if (!isWorkspaceResizing) return;
     const handleMove = (event) => {
-      const { startX, startWidth, deckWidth } = workspaceResizeMetaRef.current;
-      const delta = (event.clientX - startX) / (deckWidth || 1);
-      const nextWidth = clamp(startWidth - delta, WORKSPACE_MIN_WIDTH, WORKSPACE_MAX_WIDTH);
-      setWorkspaceWidth(nextWidth);
+      const { startX, startSlide } = workspaceResizeMetaRef.current;
+      const delta = event.clientX - startX;
+      const nextSlide = clamp(startSlide + delta, WORKSPACE_SLIDE_MIN, WORKSPACE_SLIDE_MAX);
+      setWorkspaceSlide(nextSlide);
     };
     const stopResizing = () => {
       setIsWorkspaceResizing(false);
@@ -292,7 +293,18 @@ const DocumentWorkspacePage = () => {
   const onDocumentLoadSuccess = useCallback((pdfInstance) => {
     setNumPages(pdfInstance.numPages);
     pdfProxyRef.current = pdfInstance;
+    setIsPdfReady(true);
   }, []);
+
+  // ---------- Automatic OCR ----------
+  // Run OCR automatically when user navigates to a page (if not already processed)
+  useEffect(() => {
+    if (!isPdfReady || !primaryPage || !pdfProxyRef.current || isOcrRunning) return;
+    // Only run OCR if we don't already have results for this page
+    if (!ocrResults[primaryPage]) {
+      runOcrOnPage(primaryPage);
+    }
+  }, [isPdfReady, primaryPage, ocrResults, isOcrRunning, runOcrOnPage]);
 
   // ---------- annotation helpers ----------
   const toggleAnnotationFilter = useCallback((type) => {
@@ -315,9 +327,8 @@ const DocumentWorkspacePage = () => {
       ? (typeof drawingState.opacity === 'number' ? drawingState.opacity : activeBrushOpacity || DEFAULT_BRUSH_OPACITY)
       : null;
 
-  const workspaceWidthPercent = workspaceWidth * 100;
-  const documentWidthPercent = 100 - workspaceWidthPercent;
-  const workspaceAriaValue = Math.round(workspaceWidthPercent);
+  const workspaceVisibleWidth = Math.max(WORKSPACE_FIXED_WIDTH_PX - workspaceSlide, 0);
+  const documentRightPadding = workspaceVisibleWidth + WORKSPACE_RESIZER_WIDTH;
   const updateAnnotations = useCallback((updater) => {
     setAnnotations((prev) => updater(prev).sort((a, b) => a.pageNumber - b.pageNumber));
   }, []);
@@ -596,14 +607,14 @@ const DocumentWorkspacePage = () => {
       id: createBookmarkId(),
       pageNumber,
       position: { x: clamp(point.x, 0.05, 0.95), y: clamp(point.y, 0.1, 0.9) },
-      color: activeBookmarkColor,
+      color: activeColor,
       note: note || null,
       createdAt: new Date().toISOString(),
     };
 
     setBookmarks(prev => [...prev, newBookmark]);
     setActiveTool('select'); // auto return to select tool
-  }, [activeBookmarkColor]);
+  }, [activeColor]);
 
   // ---------- POINTER EVENTS (main overlay) ----------
   const handlePointerDown = useCallback((event, pageNumber, overlayKey) => {
@@ -648,34 +659,76 @@ const DocumentWorkspacePage = () => {
       return;
     }
 
-    // comment tool
+    // comment tool - create page note annotation
     if (activeTool === 'comment') {
       event.preventDefault();
       const point = getNormalizedPoint(event, overlay);
-      const sourceRect = {
-        x: clamp(point.x - 0.02, 0, 0.96),
-        y: clamp(point.y - 0.02, 0, 0.96),
-        width: 0.04,
-        height: 0.04,
-      };
-      handleCreateWorkspaceComment({
-        sourceRect,
-        pageNumber,
-        sourceType: 'pin',
-        quoteText: '',
-      });
+      const stored = currentSelectionRef.current;
+      const hasSelection = !!stored.text && stored.range;
+      
+      let x, y, linkedText = '';
+      if (hasSelection) {
+        const rect = stored.range.getClientRects()[0];
+        if (rect) {
+          const canvasRect = overlay.getBoundingClientRect();
+          x = (rect.left + rect.width / 2 - canvasRect.left) / canvasRect.width;
+          y = (rect.top + rect.height / 2 - canvasRect.top) / canvasRect.height;
+          linkedText = stored.text;
+        } else {
+          x = point.x;
+          y = point.y;
+        }
+      } else {
+        x = point.x;
+        y = point.y;
+      }
+      
+      const content = window.prompt('Add note', linkedText || '');
+      if (!content) return;
+      
+      updateAnnotations((prev) => [
+        ...prev,
+        {
+          id: createAnnotationId(),
+          type: 'comment',
+          pageNumber,
+          color: activeColor,
+          createdAt: new Date().toISOString(),
+          content,
+          linkedText: linkedText || null,
+          position: { x: clamp(x, 0.05, 0.95), y: clamp(y, 0.05, 0.95) },
+        },
+      ]);
+      
+      // Clear selection
+      currentSelectionRef.current = { text: '', range: null };
+      window.getSelection()?.removeAllRanges();
       setActiveTool('select');
       return;
     }
-  }, [activeTool, addBookmark, applyLineAnnotation, activeBrushSize, freehandMode, isPressureEnabled, activeBrushOpacity, handleCreateWorkspaceComment]);
+  }, [activeTool, addBookmark, applyLineAnnotation, activeBrushSize, freehandMode, isPressureEnabled, activeBrushOpacity, activeColor, updateAnnotations]);
 
   const handlePointerMove = useCallback((event, overlayKey) => {
     const overlay = overlayRefs.current[overlayKey];
-    if (!overlay) return;
-
-    // dragging comment note
+    
+    // dragging comment note - handle globally for smooth dragging
     if (draggingAnnotationId.current) {
       event.preventDefault();
+      if (!overlay) {
+        // If pointer left overlay, try to find it from document
+        const primaryOverlay = overlayRefs.current.primary;
+        if (!primaryOverlay) return;
+        const p = getNormalizedPoint(event, primaryOverlay);
+        const { offsetX, offsetY, pageNumber } = draggingAnnotationMetaRef.current;
+        updateAnnotations((prev) =>
+          prev.map((a) =>
+            a.id === draggingAnnotationId.current && a.pageNumber === pageNumber && a.type === 'comment'
+              ? { ...a, position: { x: clamp(p.x - offsetX, 0.02, 0.92), y: clamp(p.y - offsetY, 0.02, 0.92) } }
+              : a,
+          ),
+        );
+        return;
+      }
       const p = getNormalizedPoint(event, overlay);
       const { offsetX, offsetY, pageNumber } = draggingAnnotationMetaRef.current;
       updateAnnotations((prev) =>
@@ -688,9 +741,30 @@ const DocumentWorkspacePage = () => {
       return;
     }
 
-    // dragging bookmark
+    // dragging bookmark - handle globally for smooth dragging
     if (draggingBookmarkId.current) {
       event.preventDefault();
+      if (!overlay) {
+        // If pointer left overlay, try to find it from document
+        const primaryOverlay = overlayRefs.current.primary;
+        if (!primaryOverlay) return;
+        const p = getNormalizedPoint(event, primaryOverlay);
+        const { offsetX, offsetY } = draggingBookmarkMetaRef.current;
+        setBookmarks(prev =>
+          prev.map(bm =>
+            bm.id === draggingBookmarkId.current
+              ? {
+                  ...bm,
+                  position: {
+                    x: clamp(p.x - offsetX, 0.05, 0.95),
+                    y: clamp(p.y - offsetY, 0.05, 0.95),
+                  },
+                }
+              : bm
+          )
+        );
+        return;
+      }
       const p = getNormalizedPoint(event, overlay);
       const { offsetX, offsetY } = draggingBookmarkMetaRef.current;
       setBookmarks(prev =>
@@ -708,6 +782,8 @@ const DocumentWorkspacePage = () => {
       );
       return;
     }
+
+    if (!overlay) return;
 
     // drawing moves
     if (!drawingState || drawingState.overlayKey !== overlayKey) return;
@@ -729,16 +805,34 @@ const DocumentWorkspacePage = () => {
 
   const handlePointerUp = useCallback((event, overlayKey) => {
     const overlay = overlayRefs.current[overlayKey];
+    
+    // Release pointer capture
+    if (event.target && event.target.releasePointerCapture) {
+      try {
+        event.target.releasePointerCapture(event.pointerId);
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+
+    if (draggingAnnotationId.current) { 
+      draggingAnnotationId.current = null; 
+      return; 
+    }
+    if (draggingBookmarkId.current) { 
+      draggingBookmarkId.current = null; 
+      return; 
+    }
+
     if (!overlay) {
       setDrawingState(null);
-      draggingAnnotationId.current = null;
-      draggingBookmarkId.current = null;
       return;
     }
 
-    if (draggingAnnotationId.current) { draggingAnnotationId.current = null; return; }
-    if (draggingBookmarkId.current) { draggingBookmarkId.current = null; return; }
-    if (!drawingState || drawingState.overlayKey !== overlayKey) { setDrawingState(null); return; }
+    if (!drawingState || drawingState.overlayKey !== overlayKey) { 
+      setDrawingState(null); 
+      return; 
+    }
 
     finalizeDrawing(getNormalizedPoint(event, overlay), overlayKey);
   }, [drawingState, finalizeDrawing]);
@@ -746,6 +840,7 @@ const DocumentWorkspacePage = () => {
   // ---------- DRAG START handlers for notes/bookmarks ----------
   const handleStartDraggingNote = useCallback((event, annotation) => {
     if (activeTool !== 'select') return;
+    event.preventDefault();
     event.stopPropagation();
     const overlay = event.currentTarget.closest('[data-overlay]');
     if (!overlay) return;
@@ -756,10 +851,15 @@ const DocumentWorkspacePage = () => {
       pageNumber: annotation.pageNumber,
     };
     draggingAnnotationId.current = annotation.id;
+    // Capture pointer for smooth dragging
+    if (event.target && event.target.setPointerCapture) {
+      event.target.setPointerCapture(event.pointerId);
+    }
   }, [activeTool]);
 
   const handleStartDraggingBookmark = useCallback((event, bookmark) => {
     if (activeTool !== 'select') return;
+    event.preventDefault();
     event.stopPropagation();
     const overlay = event.currentTarget.closest('[data-overlay]');
     if (!overlay) return;
@@ -769,6 +869,10 @@ const DocumentWorkspacePage = () => {
       offsetY: p.y - bookmark.position.y,
     };
     draggingBookmarkId.current = bookmark.id;
+    // Capture pointer for smooth dragging
+    if (event.target && event.target.setPointerCapture) {
+      event.target.setPointerCapture(event.pointerId);
+    }
   }, [activeTool]);
 
   // ---------- clipboard/clipping logic (captures source rect) ----------
@@ -776,28 +880,8 @@ const DocumentWorkspacePage = () => {
     const sel = window.getSelection();
     const text = sel?.toString().trim();
     
-    // If no text selected, try to use OCR results for the current page
+    // If no text selected, show alert
     if (!text) {
-      if (ocrResults[primaryPage] && ocrResults[primaryPage].text) {
-        const ocrText = ocrResults[primaryPage].text;
-        const confirmed = window.confirm(
-          `No text selected. Use OCR result for this page?\n\n` +
-          `(First ${Math.min(100, ocrText.length)} characters: ${ocrText.substring(0, 100)}...)`
-        );
-        if (confirmed) {
-          const newClip = {
-            id: createClippingId(),
-            content: ocrText,
-            createdAt: new Date().toISOString(),
-            sourcePage: primaryPage,
-            sourceRect: null,
-            source: 'OCR',
-          };
-          setClippings((prev) => [newClip, ...prev]);
-          setSelectedClippings([]);
-          return;
-        }
-      }
       window.alert('Select text to clip, or use the Clip Area tool for scanned documents.');
       return;
     }
@@ -881,16 +965,6 @@ const DocumentWorkspacePage = () => {
     setSelectedClippings([]);
   }, [selectedClippings]);
 
-  const handleOcrCurrentPage = useCallback(() => {
-    runOcrOnPage(primaryPage);
-  }, [primaryPage, runOcrOnPage]);
-
-  const handleOcrAllPages = useCallback(async () => {
-    const processed = await runOcrOnAllPages();
-    if (processed > 0) {
-      window.alert(`OCR completed for all ${processed} pages.`);
-    }
-  }, [runOcrOnAllPages]);
 
   // ---------- SEARCH (enhanced with OCR) ----------
   const handleSearch = useCallback(async () => {
@@ -930,8 +1004,21 @@ const DocumentWorkspacePage = () => {
       }
 
       // If still no text and we need to search, trigger OCR for this page
+      if (!text && !ocrResults[i]) {
+        // Trigger OCR for this page and wait for it to complete
+        const ocrResult = await runOcrOnPage(i);
+        if (ocrResult && ocrResult.text) {
+          text = ocrResult.text;
+        } else {
+          // If OCR didn't return immediately, wait a bit and check state
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          if (ocrResults[i]) {
+            text = ocrResults[i].text;
+          }
+        }
+      }
+      
       if (!text) {
-        // Optionally trigger OCR automatically, but for now just skip
         continue;
       }
 
@@ -949,7 +1036,7 @@ const DocumentWorkspacePage = () => {
     
     setSearchResults(results);
     setIsSearching(false);
-  }, [searchTerm, ocrResults, numPages]);
+  }, [searchTerm, ocrResults, numPages, runOcrOnPage]);
 
   const annotationDescriptions = useMemo(() => ({
     highlight: 'Highlight',
@@ -1222,22 +1309,18 @@ const DocumentWorkspacePage = () => {
 
   const handleWorkspaceResizeStart = useCallback((event) => {
     event.preventDefault();
-    const deck = viewerDeckRef.current;
-    if (!deck) return;
-    const rect = deck.getBoundingClientRect();
     workspaceResizeMetaRef.current = {
       startX: event.clientX,
-      startWidth: workspaceWidth,
-      deckWidth: rect.width || 1,
+      startSlide: workspaceSlide,
     };
     setIsWorkspaceResizing(true);
-  }, [workspaceWidth]);
+  }, [workspaceSlide]);
 
   const handleWorkspaceResizeKeyDown = useCallback((event) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     event.preventDefault();
-    const delta = event.key === 'ArrowRight' ? -0.02 : 0.02;
-    setWorkspaceWidth((prev) => clamp(prev + delta, WORKSPACE_MIN_WIDTH, WORKSPACE_MAX_WIDTH));
+    const delta = event.key === 'ArrowRight' ? 40 : -40;
+    setWorkspaceSlide((prev) => clamp(prev + delta, WORKSPACE_SLIDE_MIN, WORKSPACE_SLIDE_MAX));
   }, []);
 
   const handleManualZoom = useCallback((direction) => {
@@ -1257,6 +1340,18 @@ const DocumentWorkspacePage = () => {
       ),
     );
     setSelectedClippings(prev => prev.filter(id => id !== clippingId));
+  }, []);
+
+  const handleDeleteWorkspaceComment = useCallback((commentId) => {
+    if (!commentId) return;
+    setWorkspaceComments((prev) => prev.filter((c) => c.id !== commentId));
+    setWorkspaceItems((prev) =>
+      prev.filter(
+        (it) =>
+          getWorkspaceItemType(it) !== 'comment' ||
+          getWorkspaceItemSourceId(it) !== commentId,
+      ),
+    );
   }, []);
 
   const handleToolSelect = useCallback((toolId) => {
@@ -1290,9 +1385,55 @@ const DocumentWorkspacePage = () => {
     setActiveTool(toolId);
   }, [activeTool, applyLineAnnotation, dismissFreehandPalette]);
 
+  // ---------- Global pointer handlers for smooth dragging ----------
+  useEffect(() => {
+    const handleGlobalPointerMove = (event) => {
+      if (draggingAnnotationId.current || draggingBookmarkId.current) {
+        const overlay = overlayRefs.current.primary;
+        if (overlay) {
+          handlePointerMove(event, 'primary');
+        }
+      }
+    };
+
+    const handleGlobalPointerUp = (event) => {
+      if (draggingAnnotationId.current || draggingBookmarkId.current) {
+        handlePointerUp(event, 'primary');
+      }
+    };
+
+    window.addEventListener('pointermove', handleGlobalPointerMove);
+    window.addEventListener('pointerup', handleGlobalPointerUp);
+    window.addEventListener('pointercancel', handleGlobalPointerUp);
+    
+    return () => {
+      window.removeEventListener('pointermove', handleGlobalPointerMove);
+      window.removeEventListener('pointerup', handleGlobalPointerUp);
+      window.removeEventListener('pointercancel', handleGlobalPointerUp);
+    };
+  }, [handlePointerMove, handlePointerUp]);
+
   // ---------- rendering ----------
   return (
     <div className={styles.workspace}>
+      {/* OCR Loading Overlay */}
+      {isOcrRunning && (
+        <div className={styles.ocrLoadingOverlay}>
+          <div className={styles.ocrLoadingContent}>
+            <div className={styles.ocrSpinner}></div>
+            <p>Processing document with OCR...</p>
+            {Object.keys(ocrProgress).length > 0 && (
+              <div className={styles.ocrProgressInfo}>
+                {Object.entries(ocrProgress).map(([page, progress]) => (
+                  <div key={page} className={styles.ocrProgressItem}>
+                    Page {page}: {progress.progress}% - {progress.status}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {selectionMenu && (
         <div
           className={styles.selectionCommentMenu}
@@ -1349,13 +1490,6 @@ const DocumentWorkspacePage = () => {
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
           onSearch={handleSearch}
-          handleOcrCurrentPage={handleOcrCurrentPage}
-          handleOcrAllPages={handleOcrAllPages}
-          isOcrRunning={isOcrRunning}
-          ocrProgress={ocrProgress}
-          ocrResults={ocrResults}
-          primaryPage={primaryPage}
-          numPages={numPages || 0}
         />
 
         <div className={styles.viewerDeck} ref={viewerDeckRef}>
@@ -1393,7 +1527,7 @@ const DocumentWorkspacePage = () => {
           {/* DOCUMENT PANE - Left side */}
           <div
             className={styles.documentPane}
-            style={{ flexBasis: `${documentWidthPercent}%`, maxWidth: `${documentWidthPercent}%` }}
+            style={{ paddingRight: `${Math.max(documentRightPadding, WORKSPACE_RESIZER_WIDTH)}px` }}
           >
             <div ref={viewerZoomWrapperRef} className={styles.viewerZoomWrapper}>
               <Document file={demoPdf} onLoadSuccess={onDocumentLoadSuccess}>
@@ -1403,14 +1537,21 @@ const DocumentWorkspacePage = () => {
                     className={styles.viewerCanvas}
                     // viewerCanvas is scaled by primaryScale via inline style in effect
                   >
-                    <Page pageNumber={primaryPage} scale={primaryScale} renderTextLayer renderAnnotationLayer />
+                    <Page 
+                      pageNumber={primaryPage} 
+                      scale={primaryScale} 
+                      renderTextLayer 
+                      renderAnnotationLayer 
+                      className={styles.pdfPage}
+                      data-drawing-active={['highlight', 'freehand', 'bookmark', 'clip', 'comment'].includes(activeTool) ? 'true' : undefined}
+                    />
 
                     {/* Annotation overlay inside the transformed canvas */}
                     <div
                       ref={(n) => { overlayRefs.current.primary = n; }}
                       className={styles.annotationOverlay}
                       data-overlay
-                      data-drawing-tool={['highlight', 'freehand', 'bookmark', 'clip'].includes(activeTool) ? 'true' : undefined}
+                      data-drawing-tool={['highlight', 'freehand', 'bookmark', 'clip', 'comment'].includes(activeTool) ? 'true' : undefined}
                       onPointerDown={(e) => handlePointerDown(e, primaryPage, 'primary')}
                       onPointerMove={(e) => handlePointerMove(e, 'primary')}
                       onPointerUp={(e) => handlePointerUp(e, 'primary')}
@@ -1542,12 +1683,13 @@ const DocumentWorkspacePage = () => {
             className={`${styles.workspaceResizer} ${isWorkspaceResizing ? styles.workspaceResizerActive : ''}`}
             role="separator"
             aria-orientation="vertical"
-            aria-valuemin={Math.round(WORKSPACE_MIN_WIDTH * 100)}
-            aria-valuemax={Math.round(WORKSPACE_MAX_WIDTH * 100)}
-            aria-valuenow={workspaceAriaValue}
+            aria-valuemin={0}
+            aria-valuemax={WORKSPACE_FIXED_WIDTH_PX}
+            aria-valuenow={Math.round(workspaceVisibleWidth)}
             tabIndex={0}
             onPointerDown={handleWorkspaceResizeStart}
             onKeyDown={handleWorkspaceResizeKeyDown}
+            style={{ right: `${workspaceVisibleWidth}px` }}
           >
             <span className={styles.workspaceResizerHandle} />
           </div>
@@ -1555,7 +1697,10 @@ const DocumentWorkspacePage = () => {
           {/* WORKSPACE PANE - Right side (separate from document) */}
           <div
             className={styles.workspacePane}
-            style={{ flexBasis: `${workspaceWidthPercent}%`, maxWidth: `${workspaceWidthPercent}%` }}
+            style={{
+              width: `${WORKSPACE_FIXED_WIDTH_PX}px`,
+              right: `${-workspaceSlide}px`,
+            }}
           >
             <div className={styles.workspaceHeader}>
               <h3 className={styles.workspaceTitle}>Workspace</h3>
@@ -1599,7 +1744,29 @@ const DocumentWorkspacePage = () => {
                       onClick={() => handleWorkspaceItemClick(item)}
                     >
                       {itemType === 'clip' && (
-                        <>
+                        <div className={styles.workspaceClipCard}>
+                          <button
+                            type="button"
+                            className={styles.workspaceCommentDelete}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (clip?.id) {
+                                handleRemoveClipping(clip.id);
+                              }
+                            }}
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            title="Delete clip"
+                          >
+                            <MdClose size={14} />
+                          </button>
                           <div className={styles.workspaceItemHeader}>{clip?.segments ? 'Combined Clip' : 'Clip'}</div>
                           <div className={styles.workspaceItemContent}>
                             {clip?.segments
@@ -1611,30 +1778,40 @@ const DocumentWorkspacePage = () => {
                                 ))
                               : clip?.content}
                           </div>
-                          <div className={styles.workspaceItemActions}>
-                            <button
-                              className={styles.linkButton}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const jumpTarget = clip?.segments?.[0]?.sourcePage || clip?.sourcePage;
-                                if (jumpTarget) setPrimaryPage(getPrimaryPageFromSource(jumpTarget));
-                              }}
-                            >
-                              Jump
-                            </button>
-                          </div>
-                        </>
+                        </div>
                       )}
                       {itemType === 'comment' && comment && (
                         <div className={styles.workspaceCommentCard}>
+                          <button
+                            type="button"
+                            className={styles.workspaceCommentDelete}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (comment?.id) {
+                                handleDeleteWorkspaceComment(comment.id);
+                              }
+                            }}
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            title="Delete comment"
+                          >
+                            <MdClose size={14} />
+                          </button>
                           <div className={styles.workspaceCommentHeader}>
                             <span>Comment</span>
-                            <span>Page {comment.pageNumber}</span>
+                            <span className={styles.workspaceCommentPageNumber}>Page {comment.pageNumber}</span>
                           </div>
                           {comment.quoteText && (
                             <blockquote className={styles.workspaceCommentQuote}>
-                              “{comment.quoteText.substring(0, 160)}
-                              {comment.quoteText.length > 160 ? '…' : ''}”
+                              "{comment.quoteText.substring(0, 160)}
+                              {comment.quoteText.length > 160 ? '…' : ''}"
                             </blockquote>
                           )}
                           <p className={styles.workspaceCommentBody}>{comment.content}</p>
@@ -1644,6 +1821,15 @@ const DocumentWorkspacePage = () => {
                   );
                 })
               )}
+
+              <WorkspaceFreehandLayer
+                activeTool={activeTool}
+                activeColor={activeColor}
+                activeBrushSize={activeBrushSize}
+                activeBrushOpacity={activeBrushOpacity}
+                freehandMode={freehandMode}
+                isPressureEnabled={isPressureEnabled}
+              />
             </div>
           </div>
         </div>
@@ -1700,21 +1886,6 @@ const DocumentWorkspacePage = () => {
 
             <div className={styles.panelHeader}>Bookmarks ({bookmarks.length})</div>
             <div className={styles.panelContent}>
-              <div className={styles.toolbarGroup} style={{ marginBottom: 12, fontSize: 12 }}>
-                <span>Color:</span>
-                <div className={styles.colorSwatches}>
-                  {BOOKMARK_COLORS.map(c => (
-                    <button
-                      key={c}
-                      type="button"
-                      className={`${styles.colorDot} ${activeBookmarkColor === c ? styles.colorDotActive : ''}`}
-                      style={{ backgroundColor: c }}
-                      onClick={() => setActiveBookmarkColor(c)}
-                    />
-                  ))}
-                </div>
-              </div>
-
               {bookmarks.length === 0 ? (
                 <div className={styles.emptyState}>
                   Click the <MdBookmarkAdd size={14} /> Bookmark tool and tap anywhere on the page
